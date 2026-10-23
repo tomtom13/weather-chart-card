@@ -1,7 +1,10 @@
 <h1 align="center">Weather Chart Card</h1>
 
-# No Longer Maintained
-This repository is no longer maintained. Feel free to fork it if you find it useful.
+## Maintained fork
+
+This fork is maintained at [tomtom13/weather-chart-card](https://github.com/tomtom13/weather-chart-card), based on the original work by [mlamberts78](https://github.com/mlamberts78/weather-chart-card).
+
+Development previews are installed through the normal HACS custom-repository workflow. See [Development and HACS previews](docs/development.md) for the branch, build, preview and rollback procedure.
 
 [![Buy me a coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/mlamberts7I)
 [![PayPal](https://img.shields.io/badge/Donate-PayPal-blue?logo=paypal)](https://www.paypal.com/donate/?hosted_button_id=HZUUW64FRM2J2)
