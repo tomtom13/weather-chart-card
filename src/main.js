@@ -1,5 +1,6 @@
 import locale from './locale.js';
 import { normaliseSizeOffsets } from './size-options.js';
+import { convertWindSpeed, WIND_SPEED_UNITS } from './wind.js';
 import {
   cardinalDirectionsIcon,
   weatherIcons,
@@ -101,7 +102,11 @@ setConfig(config) {
     show_description: false,
     attributes_position: 'row',
     ...config,
+    padding_scale: config.padding_scale === undefined ? 1 : Number(config.padding_scale),
     forecast: {
+      wind_unit_position: 'inline',
+      precipitation_unit_position: 'inline',
+      precipitation_border: true,
       precipitation_type: 'rainfall',
       show_probability: false,
       labels_font_size: 11,
@@ -127,6 +132,21 @@ setConfig(config) {
 
   cardConfig.size_offsets = normaliseSizeOffsets(config.size_offsets);
   cardConfig.units.speed = config.speed ? config.speed : cardConfig.units.speed;
+  if ((config.padding_scale !== undefined && (!['number', 'string'].includes(typeof config.padding_scale) || String(config.padding_scale).trim() === '')) ||
+      !Number.isFinite(cardConfig.padding_scale) || cardConfig.padding_scale < 0) {
+    throw new Error('padding_scale must be a non-negative number');
+  }
+  if (typeof cardConfig.forecast.precipitation_border !== 'boolean') {
+    throw new Error('forecast.precipitation_border must be true or false');
+  }
+  for (const key of ['wind_unit_position', 'precipitation_unit_position']) {
+    if (!['inline', 'below', 'hidden'].includes(cardConfig.forecast[key])) {
+      throw new Error(`forecast.${key} must be inline, below or hidden`);
+    }
+  }
+  if (cardConfig.units.speed && !WIND_SPEED_UNITS.includes(cardConfig.units.speed)) {
+    throw new Error(`Unsupported wind-speed unit: ${cardConfig.units.speed}`);
+  }
 
   this.baseIconPath = cardConfig.icon_style === 'style2' ?
     'https://cdn.jsdelivr.net/gh/mlamberts78/weather-chart-card/dist/icons2/':
@@ -136,18 +156,18 @@ setConfig(config) {
   if (!config.entity) {
     throw new Error('Please, define entity in the card config');
   }
+  if (this._hass) this.hass = this._hass;
 }
 
 set hass(hass) {
   this._hass = hass;
   this.language = this.config.locale || hass.selectedLanguage || hass.language;
   this.sun = 'sun.sun' in hass.states ? hass.states['sun.sun'] : null;
+  this.weather = this.config.entity in hass.states ? hass.states[this.config.entity] : null;
   this.unitSpeed = this.config.units.speed ? this.config.units.speed : this.weather && this.weather.attributes.wind_speed_unit;
   this.unitPressure = this.config.units.pressure ? this.config.units.pressure : this.weather && this.weather.attributes.pressure_unit;
   this.unitVisibility = this.config.units.visibility ? this.config.units.visibility : this.weather && this.weather.attributes.visibility_unit;
-  this.weather = this.config.entity in hass.states
-    ? hass.states[this.config.entity]
-    : null;
+
 
   if (this.weather) {
     this.temperature = this.config.temp ? hass.states[this.config.temp].state : this.weather.attributes.temperature;
@@ -345,41 +365,6 @@ getWindDir(deg) {
   }
 }
 
-calculateBeaufortScale(windSpeed) {
-  const unitConversion = {
-    'km/h': 1,
-    'm/s': 3.6,
-    'mph': 1.60934,
-  };
-
-  if (!this.weather || !this.weather.attributes.wind_speed_unit) {
-    throw new Error('wind_speed_unit not available in weather attributes.');
-  }
-
-  const wind_speed_unit = this.weather.attributes.wind_speed_unit;
-  const conversionFactor = unitConversion[wind_speed_unit];
-
-  if (typeof conversionFactor !== 'number') {
-    throw new Error(`Unknown wind_speed_unit: ${wind_speed_unit}`);
-  }
-
-  const windSpeedInKmPerHour = windSpeed * conversionFactor;
-
-  if (windSpeedInKmPerHour < 1) return 0;
-  else if (windSpeedInKmPerHour < 6) return 1;
-  else if (windSpeedInKmPerHour < 12) return 2;
-  else if (windSpeedInKmPerHour < 20) return 3;
-  else if (windSpeedInKmPerHour < 29) return 4;
-  else if (windSpeedInKmPerHour < 39) return 5;
-  else if (windSpeedInKmPerHour < 50) return 6;
-  else if (windSpeedInKmPerHour < 62) return 7;
-  else if (windSpeedInKmPerHour < 75) return 8;
-  else if (windSpeedInKmPerHour < 89) return 9;
-  else if (windSpeedInKmPerHour < 103) return 10;
-  else if (windSpeedInKmPerHour < 118) return 11;
-  else return 12;
-}
-
 async firstUpdated(changedProperties) {
   super.firstUpdated(changedProperties);
   this.measureCard();
@@ -543,6 +528,8 @@ drawChart({ config, language, weather, forecastItems } = this) {
       categoryPercentage: 1.0,
       datalabels: {
         font: { size: this.size('forecast_precipitation', config.forecast.labels_font_size), lineHeight: 0.7 },
+        borderWidth: config.forecast.precipitation_border === false ? 0 : 1.5,
+        backgroundColor: config.forecast.precipitation_border === false ? 'transparent' : backgroundColor,
         display: function (context) {
           return context.dataset.data[context.dataIndex] > 0 ? 'true' : false;
         },
@@ -552,18 +539,14 @@ drawChart({ config, language, weather, forecastItems } = this) {
         const rainfall = context.dataset.data[context.dataIndex];
         const probability = data.forecast[context.dataIndex].precipitation_probability;
 
-        let formattedValue;
-        if (precipitationType === 'rainfall') {
-          if (probability !== undefined && probability !== null && config.forecast.show_probability) {
-	    formattedValue = `${rainfall > 9 ? Math.round(rainfall) : rainfall.toFixed(1)} ${precipUnit}\n${Math.round(probability)}%`;
-          } else {
-            formattedValue = `${rainfall > 9 ? Math.round(rainfall) : rainfall.toFixed(1)} ${precipUnit}`;
-          }
-        } else {
-          formattedValue = `${rainfall > 9 ? Math.round(rainfall) : rainfall.toFixed(1)} ${precipUnit}`;
+        const amount = rainfall > 9 ? Math.round(rainfall) : rainfall.toFixed(1);
+        const position = config.forecast.precipitation_unit_position;
+        const withUnit = (number, unit, separator = ' ') => position === 'hidden' ? `${number}`
+          : position === 'below' ? `${number}\n${unit}` : `${number}${separator}${unit}`;
+        let formattedValue = withUnit(amount, precipUnit);
+        if (precipitationType === 'rainfall' && probability !== undefined && probability !== null && config.forecast.show_probability) {
+          formattedValue += `\n\n${withUnit(Math.round(probability), '%', '')}`;
         }
-
-        formattedValue = formattedValue.replace('\n', '\n\n');
 
         return formattedValue;
       },
@@ -571,7 +554,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
         textBaseline: 'middle',
         align: 'top',
         anchor: 'start',
-        offset: -10,
+        offset: this.space(-10),
       },
     },
   ];
@@ -627,7 +610,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       animation: config.forecast.disable_animation === true ? { duration: 0 } : {},
       layout: {
         padding: {
-          bottom: 10,
+          bottom: this.space(10),
         },
       },
       scales: {
@@ -644,7 +627,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
               maxRotation: 0,
               font: { size: this.size('forecast_labels', Chart.defaults.font.size) },
               color: config.forecast.chart_datetime_color || textColor,
-              padding: config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 4 : 10,
+              padding: this.space(config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 4 : 10),
               callback: function (value, index, values) {
                   var datetime = this.getLabelForValue(value);
                   var dateObj = new Date(datetime);
@@ -712,7 +695,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
           borderColor: context => context.dataset.backgroundColor,
           borderRadius: 0,
           borderWidth: 1.5,
-          padding: config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 3 : 4,
+          padding: this.space(config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 3 : 4),
           color: chart_text_color || textColor,
           font: {
             size: config.forecast.labels_font_size,
@@ -726,7 +709,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
           titleFont: { size: this.size('tooltip_title', Chart.defaults.font.size) },
           bodyFont: { size: this.size('tooltip_body', Chart.defaults.font.size) },
           caretSize: 0,
-          caretPadding: 15,
+          caretPadding: this.space(15),
           callbacks: {
             title: function (TooltipItem) {
               var datetime = TooltipItem[0].label;
@@ -818,6 +801,30 @@ updateChart({ forecasts, forecastChart } = this) {
   }
 }
 
+  space(pixels) {
+    return pixels * this.config.padding_scale;
+  }
+
+  windSourceUnit(entity) {
+    const sensor = entity && this._hass.states[entity];
+    return (sensor && sensor.attributes.unit_of_measurement) || this.weather.attributes.wind_speed_unit;
+  }
+
+  windUnit() {
+    return this.ll('units')[this.unitSpeed] || this.unitSpeed || '';
+  }
+
+  cardStyle() {
+    const styles = [this.titleStyle()];
+    if (this.config.padding_scale !== 1) {
+      const theme = getComputedStyle(this);
+      for (const [key, fallback] of [['--ha-space-4', '16px'], ['--ha-space-5', '20px'], ['--ha-space-6', '24px']]) {
+        styles.push(`${key}: calc(${theme.getPropertyValue(key) || fallback} * ${this.config.padding_scale})`);
+      }
+    }
+    return styles.filter(Boolean).join(';');
+  }
+
   offset(key) {
     return this.config.size_offsets[key] || 0;
   }
@@ -856,13 +863,13 @@ updateChart({ forecasts, forecastChart } = this) {
       return html`
         <style>
           .card {
-            padding-top: ${config.title? '0px' : '16px'};
-            padding-right: 16px;
-            padding-bottom: 16px;
-            padding-left: 16px;
+            padding-top: ${config.title ? 0 : this.space(16)}px;
+            padding-right: ${this.space(16)}px;
+            padding-bottom: ${this.space(16)}px;
+            padding-left: ${this.space(16)}px;
           }
         </style>
-        <ha-card header="${config.title}" style=${this.titleStyle()}>
+        <ha-card header="${config.title}" style=${this.cardStyle()}>
           <div class="card">
             ${this.sizedText('error_text', 'Please, check your weather entity')}
           </div>
@@ -879,29 +886,29 @@ updateChart({ forecasts, forecastChart } = this) {
           height: ${this.size('forecast_condition_icon', config.icons_size)}px;
         }
         .card {
-          padding-top: ${config.title ? '0px' : '16px'};
-          padding-right: 16px;
-          padding-bottom: ${config.show_last_changed === true ? '2px' : '16px'};
-          padding-left: 16px;
+          padding-top: ${config.title ? 0 : this.space(16)}px;
+          padding-right: ${this.space(16)}px;
+          padding-bottom: ${this.space(config.show_last_changed === true ? 2 : 16)}px;
+          padding-left: ${this.space(16)}px;
         }
         .main {
           display: flex;
           align-items: center;
           font-size: ${this.size('current_temperature', config.current_temp_size)}px;
-          margin-bottom: 10px;
+          margin-bottom: ${this.space(10)}px;
         }
         .main ha-icon {
           --mdc-icon-size: ${this.size('current_icon', 50)}px;
-          margin-right: 14px;
+          margin-right: ${this.space(14)}px;
           margin-inline-start: initial;
-          margin-inline-end: 14px;
+          margin-inline-end: ${this.space(14)}px;
         }
         .main img {
           width: ${this.size('current_icon', config.icons_size * 2)}px;
           height: ${this.size('current_icon', config.icons_size * 2)}px;
-          margin-right: 14px;
+          margin-right: ${this.space(14)}px;
           margin-inline-start: initial;
-          margin-inline-end: 14px;
+          margin-inline-end: ${this.space(14)}px;
         }
         .main div {
           line-height: 0.9;
@@ -914,7 +921,7 @@ updateChart({ forecasts, forecastChart } = this) {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 6px;
+          margin-bottom: ${this.space(6)}px;
       	  font-weight: 300;
           direction: ltr;
         }
@@ -922,9 +929,9 @@ updateChart({ forecasts, forecastChart } = this) {
         .header--left {
           display: grid;
           grid-template-columns: auto minmax(0, 1fr) auto;
-          column-gap: 16px;
+          column-gap: ${this.space(16)}px;
           align-items: center;
-          margin-bottom: 10px;
+          margin-bottom: ${this.space(10)}px;
         }
         .header--center .main,
         .header--left .main {
@@ -936,7 +943,7 @@ updateChart({ forecasts, forecastChart } = this) {
           grid-column: 2;
           justify-content: center;
           flex-wrap: wrap;
-          gap: 16px;
+          gap: ${this.space(16)}px;
           min-width: 0;
           margin-bottom: 0;
         }
@@ -966,14 +973,14 @@ updateChart({ forecasts, forecastChart } = this) {
           display: flex;
           justify-content: space-around;
           align-items: center;
-          margin: 0px 5px 0px 5px;
+          margin: 0px ${this.space(5)}px 0px ${this.space(5)}px;
       	  cursor: pointer;
         }
         .forecast-item {
           display: flex;
           flex-direction: column;
           align-items: center;
-          margin: 1px;
+          margin: ${this.space(1)}px;
         }
         .forecast-item ha-icon {
           --mdc-icon-size: ${this.size('forecast_condition_icon', 24)}px;
@@ -987,39 +994,53 @@ updateChart({ forecasts, forecastChart } = this) {
         .wind-detail {
           display: flex;
           align-items: center;
-          margin: 1px;
+          margin: ${this.space(1)}px;
+        }
+        .wind-values {
+          display: flex;
+          align-items: center;
+        }
+        .wind-values--below {
+          flex-direction: column;
+        }
+        .wind-detail--below {
+          align-items: flex-start;
+        }
+        .wind-values--below .wind-speed,
+        .wind-values--below .wind-unit {
+          margin: 0;
         }
         .wind-detail ha-icon {
           --mdc-icon-size: ${this.size('forecast_wind_icon', 15)}px;
-          margin-right: 1px;
+          margin-right: ${this.space(1)}px;
           margin-inline-start: initial;
-          margin-inline-end: 1px;
+          margin-inline-end: ${this.space(1)}px;
         }
         .wind-icon {
-          margin-right: 1px;
+          margin-right: ${this.space(1)}px;
           margin-inline-start: initial;
-          margin-inline-end: 1px;
+          margin-inline-end: ${this.space(1)}px;
           position: relative;
 	        bottom: 1px;
         }
         .wind-speed {
           font-size: ${this.size('forecast_wind_speed', 11)}px;
-          margin-right: 1px;
+          margin-right: ${this.space(1)}px;
           margin-inline-start: initial;
-          margin-inline-end: 1px;
+          margin-inline-end: ${this.space(1)}px;
         }
         .wind-unit {
           font-size: ${this.size('forecast_wind_unit', 9)}px;
-          margin-left: 1px;
-          margin-inline-start: 1px;
+          margin-left: ${this.space(1)}px;
+          margin-inline-start: ${this.space(1)}px;
           margin-inline-end: initial;
         }
         .current-time {
           position: absolute;
-          top: 20px;
-          right: 16px;
+          top: ${this.space(20)}px;
+          right: ${this.space(16)}px;
           inset-inline-start: initial;
-          inset-inline-end: 16px;
+          inset-inline-end: ${this.space(16)}px;
           font-size: ${this.size('current_time', config.time_size)}px;
         }
         .date-text {
@@ -1028,24 +1049,24 @@ updateChart({ forecasts, forecastChart } = this) {
         }
         .main .feels-like {
           font-size: 13px;
-          margin-top: 5px;
+          margin-top: ${this.space(5)}px;
           font-weight: 400;
         }
         .main .description {
 	  font-style: italic;
           font-size: 13px;
-          margin-top: 5px;
+          margin-top: ${this.space(5)}px;
           font-weight: 400;
         }
         .updated {
           font-size: 13px;
           align-items: right;
           font-weight: 300;
-          margin-bottom: 1px;
+          margin-bottom: ${this.space(1)}px;
         }
       </style>
 
-      <ha-card header="${config.title}" style=${this.titleStyle()}>
+      <ha-card header="${config.title}" style=${this.cardStyle()}>
         <div class="card">
           ${this.renderMain()}
           ${this.attributesInHeader ? '' : this.renderAttributes()}
@@ -1170,34 +1191,9 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
 }
 
 renderAttributes({ config, humidity, pressure, windSpeed, windDirection, sun, language, uv_index, dew_point, wind_gust_speed, visibility } = this) {
-  let dWindSpeed = windSpeed;
+  const dWindSpeed = convertWindSpeed(windSpeed, this.windSourceUnit(config.windspeed), this.unitSpeed);
+  const dWindGust = convertWindSpeed(wind_gust_speed, this.windSourceUnit(config.wind_gust_speed), this.unitSpeed);
   let dPressure = pressure;
-
-  if (this.unitSpeed !== this.weather.attributes.wind_speed_unit) {
-    if (this.unitSpeed === 'm/s') {
-      if (this.weather.attributes.wind_speed_unit === 'km/h') {
-        dWindSpeed = Math.round(windSpeed * 1000 / 3600);
-      } else if (this.weather.attributes.wind_speed_unit === 'mph') {
-        dWindSpeed = Math.round(windSpeed * 0.44704);
-      }
-    } else if (this.unitSpeed === 'km/h') {
-      if (this.weather.attributes.wind_speed_unit === 'm/s') {
-        dWindSpeed = Math.round(windSpeed * 3.6);
-      } else if (this.weather.attributes.wind_speed_unit === 'mph') {
-        dWindSpeed = Math.round(windSpeed * 1.60934);
-      }
-    } else if (this.unitSpeed === 'mph') {
-      if (this.weather.attributes.wind_speed_unit === 'm/s') {
-        dWindSpeed = Math.round(windSpeed / 0.44704);
-      } else if (this.weather.attributes.wind_speed_unit === 'km/h') {
-        dWindSpeed = Math.round(windSpeed / 1.60934);
-      }
-    } else if (this.unitSpeed === 'Bft') {
-      dWindSpeed = this.calculateBeaufortScale(windSpeed);
-    }
-  } else {
-    dWindSpeed = Math.round(dWindSpeed);
-  }
 
   if (this.unitPressure !== this.weather.attributes.pressure_unit) {
     if (this.unitPressure === 'mmHg') {
@@ -1270,18 +1266,18 @@ return html`
           ` : ''}
         </div>
       ` : ''}
-      ${((showWindDirection && windDirection !== undefined) || (showWindSpeed && dWindSpeed !== undefined)) ? html`
+      ${((showWindDirection && windDirection !== undefined) || (showWindSpeed && dWindSpeed !== undefined) || (showWindgustspeed && dWindGust !== undefined)) ? html`
         <div>
           ${showWindDirection && windDirection !== undefined ? html`
             ${this.sizedIcon('wind_direction_icon', `hass:${this.getWindDirIcon(windDirection)}`)} ${this.sizedText('wind_direction_value', this.getWindDir(windDirection))} <br>
           ` : ''}
           ${showWindSpeed && dWindSpeed !== undefined ? html`
             ${this.sizedIcon('wind_speed_icon', 'hass:weather-windy')}
-            ${this.sizedText('wind_speed_value', dWindSpeed)} ${this.sizedText('wind_speed_unit', this.ll('units')[this.unitSpeed])} <br>
+            ${this.sizedText('wind_speed_value', dWindSpeed)} ${this.sizedText('wind_speed_unit', this.windUnit())} <br>
           ` : ''}
-          ${showWindgustspeed && wind_gust_speed !== undefined ? html`
+          ${showWindgustspeed && dWindGust !== undefined ? html`
             ${this.sizedIcon('wind_gust_icon', 'hass:weather-windy-variant')}
-            ${this.sizedText('wind_gust_value', wind_gust_speed)} ${this.sizedText('wind_gust_unit', this.ll('units')[this.unitSpeed])}
+            ${this.sizedText('wind_gust_value', dWindGust)} ${this.sizedText('wind_gust_unit', this.windUnit())}
           ` : ''}
         </div>
       ` : ''}
@@ -1368,7 +1364,7 @@ renderForecastConditionIcons({ config, forecastItems, sun } = this) {
   `;
 }
 
-renderWind({ config, weather, windSpeed, windDirection, forecastItems } = this) {
+renderWind({ config, forecastItems } = this) {
   const showWindForecast = config.forecast.show_wind_forecast !== false;
 
   if (!showWindForecast) {
@@ -1381,39 +1377,15 @@ renderWind({ config, weather, windSpeed, windDirection, forecastItems } = this) 
     <div class="wind-details">
       ${showWindForecast ? html`
         ${forecast.map((item) => {
-          let dWindSpeed = item.wind_speed;
-
-          if (this.unitSpeed !== this.weather.attributes.wind_speed_unit) {
-            if (this.unitSpeed === 'm/s') {
-              if (this.weather.attributes.wind_speed_unit === 'km/h') {
-                dWindSpeed = Math.round(item.wind_speed * 1000 / 3600);
-              } else if (this.weather.attributes.wind_speed_unit === 'mph') {
-                dWindSpeed = Math.round(item.wind_speed * 0.44704);
-              }
-            } else if (this.unitSpeed === 'km/h') {
-              if (this.weather.attributes.wind_speed_unit === 'm/s') {
-                dWindSpeed = Math.round(item.wind_speed * 3.6);
-              } else if (this.weather.attributes.wind_speed_unit === 'mph') {
-                dWindSpeed = Math.round(item.wind_speed * 1.60934);
-              }
-            } else if (this.unitSpeed === 'mph') {
-              if (this.weather.attributes.wind_speed_unit === 'm/s') {
-                dWindSpeed = Math.round(item.wind_speed / 0.44704);
-              } else if (this.weather.attributes.wind_speed_unit === 'km/h') {
-                dWindSpeed = Math.round(item.wind_speed / 1.60934);
-              }
-            } else if (this.unitSpeed === 'Bft') {
-              dWindSpeed = this.calculateBeaufortScale(item.wind_speed);
-            }
-          } else {
-            dWindSpeed = Math.round(dWindSpeed);
-          }
+          const dWindSpeed = convertWindSpeed(item.wind_speed, this.weather.attributes.wind_speed_unit, this.unitSpeed);
 
           return html`
-            <div class="wind-detail">
+            <div class="wind-detail wind-detail--${config.forecast.wind_unit_position}">
               <ha-icon class="wind-icon" data-size="forecast_wind_icon" icon="hass:${this.getWindDirIcon(item.wind_bearing)}"></ha-icon>
-              <span class="wind-speed" data-size="forecast_wind_speed">${dWindSpeed}</span>
-              <span class="wind-unit" data-size="forecast_wind_unit">${this.ll('units')[this.unitSpeed]}</span>
+              <div class="wind-values wind-values--${config.forecast.wind_unit_position}">
+                <span class="wind-speed" data-size="forecast_wind_speed">${dWindSpeed === undefined ? '—' : dWindSpeed}</span>
+                ${config.forecast.wind_unit_position === 'hidden' ? '' : html`<span class="wind-unit" data-size="forecast_wind_unit">${this.windUnit()}</span>`}
+              </div>
             </div>
           `;
         })}

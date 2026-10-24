@@ -1,5 +1,18 @@
 import { LitElement, html } from 'lit';
 import { SIZE_GROUPS, normaliseSizeOffsets } from './size-options.js';
+import { WIND_SPEED_UNITS } from './wind.js';
+
+const UNIT_POSITIONS = [
+  { value: 'inline', label: 'Beside number' },
+  { value: 'below', label: 'Below number' },
+  { value: 'hidden', label: 'Hidden' },
+];
+const LAYOUT_SCHEMA = [
+  { name: 'wind_unit_position', label: 'Forecast wind unit position', selector: { select: { options: UNIT_POSITIONS, mode: 'dropdown' } } },
+  { name: 'precipitation_unit_position', label: 'Precipitation unit position', selector: { select: { options: UNIT_POSITIONS, mode: 'dropdown' } } },
+  { name: 'precipitation_border', label: 'Box around precipitation labels', selector: { boolean: {} } },
+  { name: 'padding_scale', label: 'Spacing scale (0.70 = 30% less)', selector: { number: { mode: 'box', min: 0, step: 0.01 } } },
+];
 
 const ALT_SCHEMA = [
   { name: "temp", title: "Alternative temperature sensor", selector: { entity: { domain: 'sensor' } } },
@@ -111,6 +124,20 @@ class WeatherChartCardEditor extends LitElement {
     });
     event.detail = { config: newConfig };
     this.dispatchEvent(event);
+  }
+
+  _layoutChanged(event) {
+    const data = event.detail.value;
+    this.configChanged({
+      ...this._config,
+      padding_scale: data.padding_scale === undefined ? 1 : Number(data.padding_scale),
+      forecast: {
+        ...this._config.forecast,
+        wind_unit_position: data.wind_unit_position || 'inline',
+        precipitation_unit_position: data.precipitation_unit_position || 'inline',
+        precipitation_border: data.precipitation_border !== false,
+      },
+    });
   }
 
   _sizeOffsetsChanged(event) {
@@ -365,6 +392,7 @@ class WeatherChartCardEditor extends LitElement {
          <mwc-button @click="${() => this.showPage('units')}">Units</mwc-button>
          <mwc-button @click="${() => this.showPage('alternate')}">Alternate entities</mwc-button>
          <ha-button @click="${() => this.showPage('sizes')}">Sizes</ha-button>
+         <ha-button @click="${() => this.showPage('layout')}">Layout</ha-button>
        </div>
 
         <!-- Card Settings Page -->
@@ -796,20 +824,32 @@ class WeatherChartCardEditor extends LitElement {
               <ha-list-item .value=${'inHg'}>inHg</ha-list-item>
             </ha-select>
             <ha-select
-              naturalMenuWidth
-              fixedMenuPosition
-              label="Convert wind speed to"
-              .configValue=${'units.speed'}
-              .value=${unitsConfig.speed}
-              @change=${(e) => this._valueChanged(e, 'units.speed')}
-              @closed=${(ev) => ev.stopPropagation()}
-            >
-              <ha-list-item .value=${'km/h'}>km/h</ha-list-item>
-              <ha-list-item .value=${'m/s'}>m/s</ha-list-item>
-              <ha-list-item .value=${'Bft'}>Bft</ha-list-item>
-              <ha-list-item .value=${'mph'}>mph</ha-list-item>
-            </ha-select>
+              label="Wind speed unit (all wind values)"
+              .value=${unitsConfig.speed === 'Beaufort' ? 'Bft' : unitsConfig.speed || 'auto'}
+              .options=${[
+                { value: 'auto', label: 'Weather entity (automatic)' },
+                ...WIND_SPEED_UNITS.filter(unit => unit !== 'Beaufort').map(unit => ({ value: unit, label: unit === 'Bft' ? 'Beaufort' : unit })),
+              ]}
+              @selected=${e => this.configChanged({ ...this._config, units: { ...this._config.units, speed: e.detail.value === 'auto' ? '' : e.detail.value } })}
+            ></ha-select>
           </div>
+        </div>
+
+        <div class="page-container ${this.currentPage === 'layout' ? 'active' : ''}">
+          <p>Unit placement and spacing apply to this card. Choose the shared wind unit under Units.</p>
+          <ha-form
+            data-detail-layout
+            .hass=${this.hass}
+            .data=${{
+              wind_unit_position: forecastConfig.wind_unit_position || 'inline',
+              precipitation_unit_position: forecastConfig.precipitation_unit_position || 'inline',
+              precipitation_border: forecastConfig.precipitation_border !== false,
+              padding_scale: this._config.padding_scale === undefined ? 1 : Number(this._config.padding_scale),
+            }}
+            .schema=${LAYOUT_SCHEMA}
+            .computeLabel=${schema => schema.label}
+            @value-changed=${this._layoutChanged}
+          ></ha-form>
         </div>
 
         <!-- Signed pixel offsets; the schema also validates the YAML names. -->

@@ -6,6 +6,8 @@ This fork is maintained at [tomtom13/weather-chart-card](https://github.com/tomt
 
 Development previews are installed through the normal HACS custom-repository workflow. See [Development and HACS previews](docs/development.md) for the branch, build, preview and rollback procedure.
 
+See [Forecast units and spacing](docs/layout.md) for wind/precipitation unit placement, precipitation label boxes and compact padding. Text and icon adjustments are documented under [Size adjustments](docs/sizing.md).
+
 [![Buy me a coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/mlamberts7I)
 [![PayPal](https://img.shields.io/badge/Donate-PayPal-blue?logo=paypal)](https://www.paypal.com/donate/?hosted_button_id=HZUUW64FRM2J2)
 
