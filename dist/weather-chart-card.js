@@ -1280,17 +1280,15 @@ class WeatherChartCardEditor extends s {
           </div>
           <div class="textfield-container">
             <ha-select
-              naturalMenuWidth
-              fixedMenuPosition
               label="Attributes position"
               .value=${this._config.attributes_position || 'row'}
-              @change=${(e) => this._valueChanged(e, 'attributes_position')}
-              @closed=${(ev) => ev.stopPropagation()}
-            >
-              <ha-list-item value="row">Separate row (default)</ha-list-item>
-              <ha-list-item value="center">Header — centre</ha-list-item>
-              <ha-list-item value="left">Header — left</ha-list-item>
-            </ha-select>
+              .options=${[
+                { value: 'row', label: 'Separate row (default)' },
+                { value: 'center', label: 'Header — centre' },
+                { value: 'left', label: 'Header — left' },
+              ]}
+              @selected=${(e) => this.configChanged({ ...this._config, attributes_position: e.detail.value })}
+            ></ha-select>
           </div>
           <div class="switch-container">
             <ha-switch
