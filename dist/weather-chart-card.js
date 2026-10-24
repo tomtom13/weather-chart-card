@@ -18262,6 +18262,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
             width: 0,
           },
           grid: {
+            display: config.forecast.type !== 'hourly',
             drawTicks: false,
             color: dividerColor,
             lineWidth: config.forecast.grid_line_width,
@@ -18297,6 +18298,24 @@ drawChart({ config, language, weather, forecastItems } = this) {
               },
           },
           reverse: document.dir === 'rtl' ? true : false,
+        },
+        // Hour labels may be skipped, but forecast columns must never be.
+        // A zero-height category axis keeps the grid on the complete data set.
+        ForecastGrid: {
+          axis: 'x',
+          type: 'category',
+          position: 'top',
+          display: config.forecast.type === 'hourly',
+          offset: true,
+          reverse: document.dir === 'rtl',
+          border: { display: false },
+          grid: {
+            offset: true,
+            drawTicks: false,
+            color: dividerColor,
+            lineWidth: config.forecast.grid_line_width,
+          },
+          ticks: { display: false, autoSkip: false },
         },
         TempAxis: {
           position: 'left',

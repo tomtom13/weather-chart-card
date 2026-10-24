@@ -1,0 +1,552 @@
+{
+  "bundle_sha256": "2c6a22eaa1e862f1390226e5dd912de3ca63fb89563252ca2afcc57998cc1cd3",
+  "viewport": [
+    1200,
+    825
+  ],
+  "css_zoom": 1,
+  "timezone": "Europe/London",
+  "results": [
+    {
+      "case": {
+        "name": "display-3",
+        "count": 25,
+        "width": 1200,
+        "start": 0,
+        "day": 25,
+        "mode12": false,
+        "type": "hourly"
+      },
+      "points": 25,
+      "pointSpacingUniform": true,
+      "labels": [
+        [
+          "Oct 25",
+          "00"
+        ],
+        [
+          "",
+          "01"
+        ],
+        [
+          "",
+          "03"
+        ],
+        [
+          "",
+          "05"
+        ],
+        [
+          "",
+          "07"
+        ],
+        [
+          "",
+          "09"
+        ],
+        [
+          "",
+          "11"
+        ],
+        [
+          "",
+          "13"
+        ],
+        [
+          "",
+          "15"
+        ],
+        [
+          "",
+          "17"
+        ],
+        [
+          "",
+          "19"
+        ],
+        [
+          "",
+          "21"
+        ],
+        [
+          "",
+          "23"
+        ]
+      ],
+      "gridCount": 26,
+      "grid": [
+        7,
+        54,
+        101,
+        147,
+        194,
+        240,
+        287,
+        333,
+        380,
+        426,
+        473,
+        519,
+        566,
+        612,
+        659,
+        705,
+        752,
+        798,
+        845,
+        891,
+        938,
+        984,
+        1031,
+        1078,
+        1124,
+        1171
+      ],
+      "maxBoundaryError": 0.49640104166644505,
+      "spacing": 46.52589973958332,
+      "pixelWidths": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "fonts": [
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        }
+      ],
+      "plotTop": 52.4,
+      "cardHeight": 253.8125,
+      "icons": 25,
+      "wind": 25,
+      "geometry_passed": true,
+      "paint_passed": true,
+      "fonts_passed": true,
+      "markers_passed": true,
+      "passed": true
+    },
+    {
+      "case": {
+        "name": "display-4",
+        "count": 24,
+        "width": 1200,
+        "start": 0,
+        "day": 25,
+        "mode12": false,
+        "type": "hourly"
+      },
+      "points": 24,
+      "pointSpacingUniform": true,
+      "labels": [
+        [
+          "Oct 25",
+          "00"
+        ],
+        [
+          "",
+          "01"
+        ],
+        [
+          "",
+          "03"
+        ],
+        [
+          "",
+          "05"
+        ],
+        [
+          "",
+          "07"
+        ],
+        [
+          "",
+          "09"
+        ],
+        [
+          "",
+          "12"
+        ],
+        [
+          "",
+          "14"
+        ],
+        [
+          "",
+          "16"
+        ],
+        [
+          "",
+          "18"
+        ],
+        [
+          "",
+          "20"
+        ],
+        [
+          "",
+          "22"
+        ]
+      ],
+      "gridCount": 25,
+      "grid": [
+        6,
+        55,
+        103,
+        152,
+        200,
+        249,
+        297,
+        346,
+        394,
+        443,
+        492,
+        540,
+        589,
+        637,
+        686,
+        734,
+        783,
+        831,
+        880,
+        928,
+        977,
+        1025,
+        1074,
+        1122,
+        1171
+      ],
+      "maxBoundaryError": 0.4983695652174447,
+      "spacing": 48.50635190217392,
+      "pixelWidths": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "fonts": [
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        }
+      ],
+      "plotTop": 52.4,
+      "cardHeight": 253.8125,
+      "icons": 24,
+      "wind": 24,
+      "geometry_passed": true,
+      "paint_passed": true,
+      "fonts_passed": true,
+      "markers_passed": true,
+      "passed": true
+    },
+    {
+      "case": {
+        "name": "dense-12h",
+        "count": 25,
+        "width": 800,
+        "start": 15,
+        "day": 24,
+        "mode12": true,
+        "type": "hourly"
+      },
+      "points": 25,
+      "pointSpacingUniform": true,
+      "labels": [
+        [
+          "PM",
+          "3"
+        ],
+        [
+          "",
+          "8"
+        ],
+        [
+          "Oct 25 \u00b7 AM",
+          "12"
+        ],
+        [
+          "",
+          "3"
+        ],
+        [
+          "",
+          "8"
+        ],
+        [
+          "PM",
+          "12"
+        ],
+        [
+          "",
+          "2"
+        ]
+      ],
+      "gridCount": 26,
+      "grid": [
+        5,
+        36,
+        66,
+        97,
+        127,
+        158,
+        189,
+        219,
+        250,
+        281,
+        311,
+        342,
+        372,
+        403,
+        434,
+        464,
+        495,
+        526,
+        556,
+        587,
+        617,
+        648,
+        679,
+        709,
+        740,
+        771
+      ],
+      "maxBoundaryError": 0.4959999999999951,
+      "spacing": 30.624,
+      "pixelWidths": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "fonts": [
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        }
+      ],
+      "plotTop": 52.4,
+      "cardHeight": 253.8125,
+      "icons": 25,
+      "wind": 25,
+      "geometry_passed": true,
+      "paint_passed": true,
+      "fonts_passed": true,
+      "markers_passed": true,
+      "passed": true
+    },
+    {
+      "case": {
+        "name": "daily-unchanged",
+        "count": 7,
+        "width": 480,
+        "start": 12,
+        "day": 24,
+        "mode12": false,
+        "type": "daily"
+      },
+      "points": 7,
+      "pointSpacingUniform": true,
+      "labels": [
+        "Sat",
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "gridCount": 8,
+      "grid": [
+        5,
+        69,
+        132,
+        196,
+        260,
+        323,
+        387,
+        451
+      ],
+      "maxBoundaryError": 0.4000000000000341,
+      "spacing": 63.65714285714285,
+      "pixelWidths": [
+        2,
+        2
+      ],
+      "fonts": [
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        },
+        {
+          "size": 16,
+          "weight": "normal"
+        }
+      ],
+      "plotTop": 33.2,
+      "cardHeight": 253.8125,
+      "icons": 7,
+      "wind": 7,
+      "geometry_passed": true,
+      "paint_passed": true,
+      "fonts_passed": true,
+      "markers_passed": true,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

@@ -161,6 +161,8 @@ The card requires top-level `type: custom:weather-chart-card`. The remaining Mai
 
 Daily forecasts can include high and low lines; missing low-temperature data cannot produce a meaningful low line. Hourly ticks show hours only, using the existing `use_12hour_format` setting: 24-hour mode shows `13`, `14`, `15`; 12-hour mode shows plain `1`, `2`, `3` with a shared AM/PM marker in the upper row at the first point and each half-day transition. Midnight combines its date and AM marker on that same row. Both rows remain reserved so the plot never shifts. Header clocks and tooltip times retain their normal formatting. Dates/times use the **browser’s timezone**, including the browser used by a kiosk renderer; this card has no independent timezone override.
 
+The hourly grid retains one regularly spaced column per forecast entry even when some time labels are omitted to avoid crowding. Text-label density does not move or remove forecast dividers.
+
 ### Layout options — Layout page
 
 `padding_scale` is top-level. The other settings in this table belong under `forecast:`.
