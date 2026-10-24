@@ -59,7 +59,7 @@ The **Layout** configurator exposes bold/normal text and short/long weekday name
 
 Hourly column labels always reserve two lines. Hours have no minutes: `use_12hour_format: false` shows `13`, `14`, `15`; `true` shows plain `1`, `2`, `3`. In 12-hour mode, AM/PM appears in the upper row at the first point and whenever the half-day changes, including when the window starts after noon. Midnight shares that row with its date (for example `Oct 25 · AM`). In 24-hour mode the upper row carries only date boundaries. The plot and container retain their height across these transitions. This changes neither the header clock nor tooltip formatting.
 
-Hourly dividers are positioned from every forecast column independently of label thinning. Skipping an hour label must not remove or shift its column boundary; temperature points, condition icons and wind entries retain one regularly spaced slot per forecast entry.
+Hourly dividers are positioned from every forecast column independently of the text axis. Every displayed hourly forecast receives an hour label; wider date metadata must not cause alternate hours to disappear. Temperature points, condition icons and wind entries retain one regularly spaced slot per forecast entry. If an explicitly large point count crowds a small card, reduce that count or use automatic forecast count rather than relying on silently omitted hour labels.
 
 ## Forecast availability
 

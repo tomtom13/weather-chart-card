@@ -18268,6 +18268,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
             lineWidth: config.forecast.grid_line_width,
           },
           ticks: {
+              autoSkip: config.forecast.type !== 'hourly',
               major: { enabled: config.forecast.type === 'hourly' },
               maxRotation: 0,
               font: { size: this.size('forecast_labels', Chart.defaults.font.size), weight: config.forecast.labels_bold ? 'bold' : 'normal' },
