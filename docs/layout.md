@@ -7,7 +7,9 @@ The visual card configurator has a **Layout** page for these settings. They are 
 | `forecast.wind_unit_position` | `inline` | `inline`, `below`, `hidden`: wind-speed unit beside the number, under it, or omitted. |
 | `forecast.precipitation_unit_position` | `inline` | `inline`, `below`, `hidden`: unit beside the precipitation number, under it, or omitted. Applies to mm/in and percentage units when shown. |
 | `forecast.precipitation_border` | `true` | `false` removes the precipitation label's border and background only. Temperature-label styling is not changed. |
-| `padding_scale` | `1` | Non-negative spacing multiplier. `0.7` gives 30% less padding/gap/margin; `0` removes adjustable spacing. |
+| `padding_scale` | `0.7` | Non-negative spacing multiplier. The default gives 30% less padding/gap/margin; `1` restores original spacing and `0` removes adjustable spacing. |
+| `forecast.labels_bold` | `false` | Bold (`true`) or normal (`false`) forecast day/hour column labels. |
+| `forecast.weekday_format` | `short` | Daily forecast weekday names: `short` (Mon) or `long` (Monday), in the configured locale. |
 | `units.speed` | Weather entity unit | The unit for all wind values in this card: `m/s`, `km/h`, `mph`, `kn`, `ft/s`, `Bft`. Native `Beaufort` is also accepted. An empty value follows the weather entity. |
 
 ## Compact example
@@ -22,7 +24,9 @@ size_offsets:
   forecast_wind_speed: +3
   forecast_wind_unit: +3
 forecast:
-  wind_unit_position: below
+  wind_unit_position: hidden
+  labels_bold: false
+  weekday_format: short
   precipitation_unit_position: hidden
   precipitation_border: false
 ```
@@ -45,4 +49,14 @@ Disabling the border removes the visible precipitation label box, not the precip
 
 The multiplier applies to the card's inner frame padding, native title padding, header/attribute gaps, icon and forecast-item margins, chart padding, label padding and tooltip spacing. Zero margins in a surrounding layout remain zero. It does **not** shrink font/icon sizes, chart height, border thickness, rounded frame corners, or unrelated dashboards' configuration. Use the independent [size offsets](sizing.md) for text and icon dimensions.
 
-The default is 1 to preserve existing configurations. Changes are previewed and installed using the [normal HACS workflow](development.md).
+The default is 0.7, including when the YAML key is omitted and when opening the configurator. Existing cards without an explicit value inherit that compact spacing. Set `padding_scale: 1` to keep the original spacing. Changes are previewed and installed using the [normal HACS workflow](development.md).
+
+## Forecast day/hour labels
+
+The **Layout** configurator exposes bold/normal text and short/long weekday names. The independent **Sizes -> Forecast day/hour labels** adjustment is `size_offsets.forecast_labels`; `+2` changes the normal 12 px baseline to 14 px without changing temperature or wind labels. Weekday names use the locale's normal capitalization. Header clock/day formatting is separate.
+
+Hourly column labels always reserve two lines: the date line (shown at midnight) and the time line. The first line remains blank at other hours, so the x-axis and plot do not resize when midnight enters or leaves the forecast window.
+
+## Forecast availability
+
+`forecast.number_of_forecasts` is a display maximum, not a request for the weather provider to generate more days. The card cannot display more forecast entries than its weather entity supplies. Increasing the value beyond the available feed length does not extend that feed.

@@ -952,6 +952,8 @@ const LAYOUT_SCHEMA = [
   { name: 'wind_unit_position', label: 'Forecast wind unit position', selector: { select: { options: UNIT_POSITIONS, mode: 'dropdown' } } },
   { name: 'precipitation_unit_position', label: 'Precipitation unit position', selector: { select: { options: UNIT_POSITIONS, mode: 'dropdown' } } },
   { name: 'precipitation_border', label: 'Box around precipitation labels', selector: { boolean: {} } },
+  { name: 'labels_bold', label: 'Bold forecast day/hour labels', selector: { boolean: {} } },
+  { name: 'weekday_format', label: 'Daily forecast weekday names', selector: { select: { options: [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], mode: 'dropdown' } } },
   { name: 'padding_scale', label: 'Spacing scale (0.70 = 30% less)', selector: { number: { mode: 'box', min: 0, step: 0.01 } } },
 ];
 
@@ -1071,12 +1073,14 @@ class WeatherChartCardEditor extends s {
     const data = event.detail.value;
     this.configChanged({
       ...this._config,
-      padding_scale: data.padding_scale === undefined ? 1 : Number(data.padding_scale),
+      padding_scale: data.padding_scale === undefined ? 0.7 : Number(data.padding_scale),
       forecast: {
         ...this._config.forecast,
         wind_unit_position: data.wind_unit_position || 'inline',
         precipitation_unit_position: data.precipitation_unit_position || 'inline',
         precipitation_border: data.precipitation_border !== false,
+        labels_bold: data.labels_bold === true,
+        weekday_format: data.weekday_format || 'short',
       },
     });
   }
@@ -1785,7 +1789,9 @@ class WeatherChartCardEditor extends s {
               wind_unit_position: forecastConfig.wind_unit_position || 'inline',
               precipitation_unit_position: forecastConfig.precipitation_unit_position || 'inline',
               precipitation_border: forecastConfig.precipitation_border !== false,
-              padding_scale: this._config.padding_scale === undefined ? 1 : Number(this._config.padding_scale),
+              labels_bold: forecastConfig.labels_bold === true,
+              weekday_format: forecastConfig.weekday_format || 'short',
+              padding_scale: this._config.padding_scale === undefined ? 0.7 : Number(this._config.padding_scale),
             }}
             .schema=${LAYOUT_SCHEMA}
             .computeLabel=${schema => schema.label}
@@ -18217,6 +18223,7 @@ static getStubConfig(hass, unusedEntities, allEntities) {
   }
   return {
     entity,
+    padding_scale: 0.7,
     show_main: true,
     show_temperature: true,
     show_current_condition: true,
@@ -18291,8 +18298,10 @@ setConfig(config) {
     show_description: false,
     attributes_position: 'row',
     ...config,
-    padding_scale: config.padding_scale === undefined ? 1 : Number(config.padding_scale),
+    padding_scale: config.padding_scale === undefined ? 0.7 : Number(config.padding_scale),
     forecast: {
+      labels_bold: false,
+      weekday_format: 'short',
       wind_unit_position: 'inline',
       precipitation_unit_position: 'inline',
       precipitation_border: true,
@@ -18327,6 +18336,12 @@ setConfig(config) {
   }
   if (typeof cardConfig.forecast.precipitation_border !== 'boolean') {
     throw new Error('forecast.precipitation_border must be true or false');
+  }
+  if (typeof cardConfig.forecast.labels_bold !== 'boolean') {
+    throw new Error('forecast.labels_bold must be true or false');
+  }
+  if (!['short', 'long'].includes(cardConfig.forecast.weekday_format)) {
+    throw new Error('forecast.weekday_format must be short or long');
   }
   for (const key of ['wind_unit_position', 'precipitation_unit_position']) {
     if (!['inline', 'below', 'hidden'].includes(cardConfig.forecast[key])) {
@@ -18814,7 +18829,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
           },
           ticks: {
               maxRotation: 0,
-              font: { size: this.size('forecast_labels', Chart.defaults.font.size) },
+              font: { size: this.size('forecast_labels', Chart.defaults.font.size), weight: config.forecast.labels_bold ? 'bold' : 'normal' },
               color: config.forecast.chart_datetime_color || textColor,
               padding: this.space(config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 4 : 10),
               callback: function (value, index, values) {
@@ -18840,12 +18855,14 @@ drawChart({ config, language, weather, forecastItems } = this) {
                   }
 
                   if (config.forecast.type !== 'hourly') {
-                      var weekday = dateObj.toLocaleString(language, { weekday: 'short' }).toUpperCase();
+                      var weekday = dateObj.toLocaleString(language, { weekday: config.forecast.weekday_format });
                       return weekday;
                   }
 
                   time = time.replace('a.m.', 'AM').replace('p.m.', 'PM');
-                  return time;
+                  // Keep the date line even when no midnight is in the window.
+                  // Otherwise the x-axis grows/shrinks as the new day enters it.
+                  return ['', time];
               },
           },
           reverse: document.dir === 'rtl' ? true : false,

@@ -51,6 +51,7 @@ HACS is a third party community store and is not included in Home Assistant out 
 | show_temperature      | boolean | true                     | Show or hide the current temperature.                                                              |
 | show_current_condition| boolean | true                     | Show or hide the current weather condition.                                                        |
 | show_attributes       | boolean | true                     | Show or hide a section with attributes such as pressure, humidity, wind direction and speed, etc.  |
+| padding_scale         | number  | `0.7`                    | Spacing multiplier, available in YAML and the visual configurator under **Layout**. Use `1` for original spacing. |
 | size_offsets          | mapping | `{}`                     | Independent signed pixel adjustments for text, numbers and icons. See [Size adjustments](docs/sizing.md); also available in the visual configurator under **Sizes**. |
 | attributes_position   | string  | `row`                    | `row`: separate attributes row (existing layout). `center`: attributes centred between weather and clock. `left`: attributes left-aligned beside the weather summary. Header positions require `show_main: true`; otherwise attributes stay in their separate row. |
 | show_sun              | boolean | true                     | Show or hide the sunset information                                                                |

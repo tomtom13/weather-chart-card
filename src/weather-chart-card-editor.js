@@ -11,6 +11,8 @@ const LAYOUT_SCHEMA = [
   { name: 'wind_unit_position', label: 'Forecast wind unit position', selector: { select: { options: UNIT_POSITIONS, mode: 'dropdown' } } },
   { name: 'precipitation_unit_position', label: 'Precipitation unit position', selector: { select: { options: UNIT_POSITIONS, mode: 'dropdown' } } },
   { name: 'precipitation_border', label: 'Box around precipitation labels', selector: { boolean: {} } },
+  { name: 'labels_bold', label: 'Bold forecast day/hour labels', selector: { boolean: {} } },
+  { name: 'weekday_format', label: 'Daily forecast weekday names', selector: { select: { options: [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], mode: 'dropdown' } } },
   { name: 'padding_scale', label: 'Spacing scale (0.70 = 30% less)', selector: { number: { mode: 'box', min: 0, step: 0.01 } } },
 ];
 
@@ -130,12 +132,14 @@ class WeatherChartCardEditor extends LitElement {
     const data = event.detail.value;
     this.configChanged({
       ...this._config,
-      padding_scale: data.padding_scale === undefined ? 1 : Number(data.padding_scale),
+      padding_scale: data.padding_scale === undefined ? 0.7 : Number(data.padding_scale),
       forecast: {
         ...this._config.forecast,
         wind_unit_position: data.wind_unit_position || 'inline',
         precipitation_unit_position: data.precipitation_unit_position || 'inline',
         precipitation_border: data.precipitation_border !== false,
+        labels_bold: data.labels_bold === true,
+        weekday_format: data.weekday_format || 'short',
       },
     });
   }
@@ -844,7 +848,9 @@ class WeatherChartCardEditor extends LitElement {
               wind_unit_position: forecastConfig.wind_unit_position || 'inline',
               precipitation_unit_position: forecastConfig.precipitation_unit_position || 'inline',
               precipitation_border: forecastConfig.precipitation_border !== false,
-              padding_scale: this._config.padding_scale === undefined ? 1 : Number(this._config.padding_scale),
+              labels_bold: forecastConfig.labels_bold === true,
+              weekday_format: forecastConfig.weekday_format || 'short',
+              padding_scale: this._config.padding_scale === undefined ? 0.7 : Number(this._config.padding_scale),
             }}
             .schema=${LAYOUT_SCHEMA}
             .computeLabel=${schema => schema.label}
