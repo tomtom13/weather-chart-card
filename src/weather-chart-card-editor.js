@@ -1,4 +1,5 @@
 import { LitElement, html } from 'lit';
+import { SIZE_GROUPS, normaliseSizeOffsets } from './size-options.js';
 
 const ALT_SCHEMA = [
   { name: "temp", title: "Alternative temperature sensor", selector: { entity: { domain: 'sensor' } } },
@@ -110,6 +111,16 @@ class WeatherChartCardEditor extends LitElement {
     });
     event.detail = { config: newConfig };
     this.dispatchEvent(event);
+  }
+
+  _sizeOffsetsChanged(event) {
+    const values = Object.fromEntries(Object.entries(event.detail.value).map(([key, value]) =>
+      [key, value === undefined || value === null || value === '' ? 0 : Number(value)]));
+    if (Object.values(values).some(value => !Number.isFinite(value))) return;
+    this.configChanged({
+      ...this._config,
+      size_offsets: normaliseSizeOffsets({ ...this._config.size_offsets, ...values }),
+    });
   }
 
   _valueChanged(event, key) {
@@ -353,6 +364,7 @@ class WeatherChartCardEditor extends LitElement {
          <mwc-button @click="${() => this.showPage('forecast')}">Forecast</mwc-button>
          <mwc-button @click="${() => this.showPage('units')}">Units</mwc-button>
          <mwc-button @click="${() => this.showPage('alternate')}">Alternate entities</mwc-button>
+         <ha-button @click="${() => this.showPage('sizes')}">Sizes</ha-button>
        </div>
 
         <!-- Card Settings Page -->
@@ -798,6 +810,24 @@ class WeatherChartCardEditor extends LitElement {
               <ha-list-item .value=${'mph'}>mph</ha-list-item>
             </ha-select>
           </div>
+        </div>
+
+        <!-- Signed pixel offsets; the schema also validates the YAML names. -->
+        <div class="page-container ${this.currentPage === 'sizes' ? 'active' : ''}">
+          <p>Signed pixel adjustments: 0 keeps the existing size, +2 adds 2 px, -2 removes 2 px. Sizes cannot fall below 1 px.</p>
+          ${SIZE_GROUPS.map(group => html`
+            <details>
+              <summary>${group.title}</summary>
+              <ha-form
+                data-size-group=${group.title}
+                .hass=${this.hass}
+                .data=${Object.fromEntries(group.fields.map(field => [field.key, (this._config.size_offsets || {})[field.key] || 0]))}
+                .schema=${group.fields.map(field => ({ name: field.key, label: `${field.label} (+/- px)`, selector: { number: { mode: 'box', step: 1 } } }))}
+                .computeLabel=${schema => schema.label}
+                @value-changed=${this._sizeOffsetsChanged}
+              ></ha-form>
+            </details>
+          `)}
         </div>
 
         <!-- Alternate Page -->

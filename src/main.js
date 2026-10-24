@@ -1,4 +1,5 @@
 import locale from './locale.js';
+import { normaliseSizeOffsets } from './size-options.js';
 import {
   cardinalDirectionsIcon,
   weatherIcons,
@@ -124,6 +125,7 @@ setConfig(config) {
     }
   };
 
+  cardConfig.size_offsets = normaliseSizeOffsets(config.size_offsets);
   cardConfig.units.speed = config.speed ? config.speed : cardConfig.units.speed;
 
   this.baseIconPath = cardConfig.icon_style === 'style2' ?
@@ -246,7 +248,8 @@ subscribeForecastEvents() {
 
 measureCard() {
   const card = this.shadowRoot.querySelector('ha-card');
-  let fontSize = this.config.forecast.labels_font_size;
+  let fontSize = Math.max(...['forecast_labels', 'forecast_temperature_high', 'forecast_temperature_low', 'forecast_precipitation']
+    .map(key => this.size(key, this.config.forecast.labels_font_size)));
   const numberOfForecasts = this.config.forecast.number_of_forecasts || 0;
 
   if (!card) {
@@ -518,6 +521,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       yAxisID: 'TempAxis',
       borderColor: config.forecast.temperature1_color,
       backgroundColor: config.forecast.temperature1_color,
+      datalabels: { font: { size: this.size('forecast_temperature_high', config.forecast.labels_font_size), lineHeight: 0.7 } },
     },
     {
       label: this.ll('tempLo'),
@@ -526,6 +530,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       yAxisID: 'TempAxis',
       borderColor: config.forecast.temperature2_color,
       backgroundColor: config.forecast.temperature2_color,
+      datalabels: { font: { size: this.size('forecast_temperature_low', config.forecast.labels_font_size), lineHeight: 0.7 } },
     },
     {
       label: this.ll('precip'),
@@ -537,6 +542,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       barPercentage: config.forecast.precip_bar_size / 100,
       categoryPercentage: 1.0,
       datalabels: {
+        font: { size: this.size('forecast_precipitation', config.forecast.labels_font_size), lineHeight: 0.7 },
         display: function (context) {
           return context.dataset.data[context.dataIndex] > 0 ? 'true' : false;
         },
@@ -586,7 +592,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       borderColor: 'transparent',
       color: chart_text_color || config.forecast.temperature1_color,
       font: {
-        size: parseInt(config.forecast.labels_font_size) + 1,
+        size: this.size('forecast_temperature_high', parseInt(config.forecast.labels_font_size) + 1),
         lineHeight: 0.7,
       },
     };
@@ -604,7 +610,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       borderColor: 'transparent',
       color: chart_text_color || config.forecast.temperature2_color,
       font: {
-        size: parseInt(config.forecast.labels_font_size) + 1,
+        size: this.size('forecast_temperature_low', parseInt(config.forecast.labels_font_size) + 1),
         lineHeight: 0.7,
       },
     };
@@ -636,6 +642,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
           },
           ticks: {
               maxRotation: 0,
+              font: { size: this.size('forecast_labels', Chart.defaults.font.size) },
               color: config.forecast.chart_datetime_color || textColor,
               padding: config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 4 : 10,
               callback: function (value, index, values) {
@@ -716,6 +723,8 @@ drawChart({ config, language, weather, forecastItems } = this) {
           },
         },
         tooltip: {
+          titleFont: { size: this.size('tooltip_title', Chart.defaults.font.size) },
+          bodyFont: { size: this.size('tooltip_body', Chart.defaults.font.size) },
           caretSize: 0,
           caretPadding: 15,
           callbacks: {
@@ -809,6 +818,31 @@ updateChart({ forecasts, forecastChart } = this) {
   }
 }
 
+  offset(key) {
+    return this.config.size_offsets[key] || 0;
+  }
+
+  size(key, base) {
+    return Math.max(1, Number(base) + this.offset(key));
+  }
+
+  sizedText(key, value, base) {
+    const fontSize = base === undefined
+      ? `max(1px, calc(1em + ${this.offset(key)}px))`
+      : `${this.size(key, base)}px`;
+    return html`<span data-size=${key} style="font-size: ${fontSize}">${value}</span>`;
+  }
+
+  sizedIcon(key, icon) {
+    return html`<ha-icon data-size=${key} icon=${icon} style="--mdc-icon-size: ${this.size(key, 24)}px"></ha-icon>`;
+  }
+
+  titleStyle() {
+    if (!this.offset('title')) return '';
+    const base = getComputedStyle(this).getPropertyValue('--ha-card-header-font-size') || '24px';
+    return `--ha-card-header-font-size: max(1px, calc(${base} + ${this.offset('title')}px))`;
+  }
+
   get attributesInHeader() {
     return this.config.show_main !== false && this.config.show_attributes !== false &&
       ['center', 'left'].includes(this.config.attributes_position);
@@ -828,9 +862,9 @@ updateChart({ forecasts, forecastChart } = this) {
             padding-left: 16px;
           }
         </style>
-        <ha-card header="${config.title}">
+        <ha-card header="${config.title}" style=${this.titleStyle()}>
           <div class="card">
-            Please, check your weather entity
+            ${this.sizedText('error_text', 'Please, check your weather entity')}
           </div>
         </ha-card>
       `;
@@ -841,8 +875,8 @@ updateChart({ forecasts, forecastChart } = this) {
           color: var(--paper-item-icon-color);
         }
         img {
-          width: ${config.icons_size}px;
-          height: ${config.icons_size}px;
+          width: ${this.size('forecast_condition_icon', config.icons_size)}px;
+          height: ${this.size('forecast_condition_icon', config.icons_size)}px;
         }
         .card {
           padding-top: ${config.title ? '0px' : '16px'};
@@ -853,18 +887,18 @@ updateChart({ forecasts, forecastChart } = this) {
         .main {
           display: flex;
           align-items: center;
-          font-size: ${config.current_temp_size}px;
+          font-size: ${this.size('current_temperature', config.current_temp_size)}px;
           margin-bottom: 10px;
         }
         .main ha-icon {
-          --mdc-icon-size: 50px;
+          --mdc-icon-size: ${this.size('current_icon', 50)}px;
           margin-right: 14px;
           margin-inline-start: initial;
           margin-inline-end: 14px;
         }
         .main img {
-          width: ${config.icons_size * 2}px;
-          height: ${config.icons_size * 2}px;
+          width: ${this.size('current_icon', config.icons_size * 2)}px;
+          height: ${this.size('current_icon', config.icons_size * 2)}px;
           margin-right: 14px;
           margin-inline-start: initial;
           margin-inline-end: 14px;
@@ -941,6 +975,9 @@ updateChart({ forecasts, forecastChart } = this) {
           align-items: center;
           margin: 1px;
         }
+        .forecast-item ha-icon {
+          --mdc-icon-size: ${this.size('forecast_condition_icon', 24)}px;
+        }
         .wind-details {
           display: flex;
           justify-content: space-around;
@@ -953,7 +990,7 @@ updateChart({ forecasts, forecastChart } = this) {
           margin: 1px;
         }
         .wind-detail ha-icon {
-          --mdc-icon-size: 15px;
+          --mdc-icon-size: ${this.size('forecast_wind_icon', 15)}px;
           margin-right: 1px;
           margin-inline-start: initial;
           margin-inline-end: 1px;
@@ -966,13 +1003,13 @@ updateChart({ forecasts, forecastChart } = this) {
 	        bottom: 1px;
         }
         .wind-speed {
-          font-size: 11px;
+          font-size: ${this.size('forecast_wind_speed', 11)}px;
           margin-right: 1px;
           margin-inline-start: initial;
           margin-inline-end: 1px;
         }
         .wind-unit {
-          font-size: 9px;
+          font-size: ${this.size('forecast_wind_unit', 9)}px;
           margin-left: 1px;
           margin-inline-start: 1px;
           margin-inline-end: initial;
@@ -983,7 +1020,7 @@ updateChart({ forecasts, forecastChart } = this) {
           right: 16px;
           inset-inline-start: initial;
           inset-inline-end: 16px;
-          font-size: ${config.time_size}px;
+          font-size: ${this.size('current_time', config.time_size)}px;
         }
         .date-text {
           font-size: ${config.day_date_size}px;
@@ -1008,7 +1045,7 @@ updateChart({ forecasts, forecastChart } = this) {
         }
       </style>
 
-      <ha-card header="${config.title}">
+      <ha-card header="${config.title}" style=${this.titleStyle()}>
         <div class="card">
           ${this.renderMain()}
           ${this.attributesInHeader ? '' : this.renderAttributes()}
@@ -1048,8 +1085,8 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
   }
 
   const iconHtml = config.animated_icons || config.icons
-    ? html`<img src="${this.getWeatherIcon(weather.state, sun.state)}" alt="">`
-    : html`<ha-icon icon="${this.getWeatherIcon(weather.state, sun.state)}"></ha-icon>`;
+    ? html`<img data-size="current_icon" src="${this.getWeatherIcon(weather.state, sun.state)}" alt="">`
+    : html`<ha-icon data-size="current_icon" icon="${this.getWeatherIcon(weather.state, sun.state)}"></ha-icon>`;
 
   const updateClock = () => {
     const currentDate = new Date();
@@ -1092,10 +1129,10 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
 
   const clockHtml = showTime ? html`
     <div class="current-time">
-      <div id="digital-clock"></div>
-      ${showDay ? html`<div class="date-text day"></div>` : ''}
+      <div id="digital-clock" data-size="current_time"></div>
+      ${showDay ? html`<div class="date-text day" data-size="current_day" style="font-size: ${this.size('current_day', config.day_date_size)}px"></div>` : ''}
       ${showDay && showDate ? html` ` : ''}
-      ${showDate ? html`<div class="date-text date"></div>` : ''}
+      ${showDate ? html`<div class="date-text date" data-size="current_date" style="font-size: ${this.size('current_date', config.day_date_size)}px"></div>` : ''}
     </div>
   ` : '';
 
@@ -1105,21 +1142,21 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
       ${iconHtml}
       <div>
         <div>
-          ${showTemperature ? html`${roundedTemperature}<span>${this.getUnit('temperature')}</span>` : ''}
+          ${showTemperature ? html`${this.sizedText('current_temperature', roundedTemperature, config.current_temp_size)}${this.sizedText('current_temperature_unit', this.getUnit('temperature'), 18)}` : ''}
           ${showFeelsLike && roundedFeelsLike ? html`
             <div class="feels-like">
-              ${this.ll('feelsLike')}
-              ${roundedFeelsLike}${this.getUnit('temperature')}
+              ${this.sizedText('feels_like_label', this.ll('feelsLike'), 13)}
+              ${this.sizedText('feels_like_value', roundedFeelsLike, 13)}${this.sizedText('feels_like_unit', this.getUnit('temperature'), 13)}
             </div>
           ` : ''}
           ${showCurrentCondition ? html`
             <div class="current-condition">
-              <span>${this.ll(weather.state)}</span>
+              ${this.sizedText('current_condition', this.ll(weather.state), 18)}
             </div>
           ` : ''}
           ${showDescription ? html`
             <div class="description">
-              ${description}
+              ${this.sizedText('description', description, 13)}
             </div>
           ` : ''}
         </div>
@@ -1206,16 +1243,16 @@ return html`
       ${((showHumidity && humidity !== undefined) || (showPressure && dPressure !== undefined) || (showDewpoint && dew_point !== undefined) || (showVisibility && visibility !== undefined)) ? html`
         <div>
           ${showHumidity && humidity !== undefined ? html`
-            <ha-icon icon="hass:water-percent"></ha-icon> ${humidity} %<br>
+            ${this.sizedIcon('humidity_icon', 'hass:water-percent')} ${this.sizedText('humidity_value', humidity)} ${this.sizedText('humidity_unit', '%')}<br>
           ` : ''}
           ${showPressure && dPressure !== undefined ? html`
-            <ha-icon icon="hass:gauge"></ha-icon> ${dPressure} ${this.ll('units')[this.unitPressure]} <br>
+            ${this.sizedIcon('pressure_icon', 'hass:gauge')} ${this.sizedText('pressure_value', dPressure)} ${this.sizedText('pressure_unit', this.ll('units')[this.unitPressure])} <br>
           ` : ''}
           ${showDewpoint && dew_point !== undefined ? html`
-            <ha-icon icon="hass:thermometer-water"></ha-icon> ${dew_point} ${this.weather.attributes.temperature_unit} <br>
+            ${this.sizedIcon('dew_point_icon', 'hass:thermometer-water')} ${this.sizedText('dew_point_value', dew_point)} ${this.sizedText('dew_point_unit', this.weather.attributes.temperature_unit)} <br>
           ` : ''}
           ${showVisibility && visibility !== undefined ? html`
-            <ha-icon icon="hass:eye"></ha-icon> ${visibility} ${this.weather.attributes.visibility_unit}
+            ${this.sizedIcon('visibility_icon', 'hass:eye')} ${this.sizedText('visibility_value', visibility)} ${this.sizedText('visibility_unit', this.weather.attributes.visibility_unit)}
           ` : ''}
         </div>
       ` : ''}
@@ -1223,7 +1260,7 @@ return html`
         <div>
           ${typeof uv_index !== 'undefined' && uv_index !== undefined ? html`
             <div>
-              <ha-icon icon="hass:white-balance-sunny"></ha-icon> UV: ${Math.round(uv_index * 10) / 10}
+              ${this.sizedIcon('uv_icon', 'hass:white-balance-sunny')} ${this.sizedText('uv_label', 'UV:')} ${this.sizedText('uv_value', Math.round(uv_index * 10) / 10)}
             </div>
           ` : ''}
           ${showSun && sun !== undefined ? html`
@@ -1236,15 +1273,15 @@ return html`
       ${((showWindDirection && windDirection !== undefined) || (showWindSpeed && dWindSpeed !== undefined)) ? html`
         <div>
           ${showWindDirection && windDirection !== undefined ? html`
-            <ha-icon icon="hass:${this.getWindDirIcon(windDirection)}"></ha-icon> ${this.getWindDir(windDirection)} <br>
+            ${this.sizedIcon('wind_direction_icon', `hass:${this.getWindDirIcon(windDirection)}`)} ${this.sizedText('wind_direction_value', this.getWindDir(windDirection))} <br>
           ` : ''}
           ${showWindSpeed && dWindSpeed !== undefined ? html`
-            <ha-icon icon="hass:weather-windy"></ha-icon>
-            ${dWindSpeed} ${this.ll('units')[this.unitSpeed]} <br>
+            ${this.sizedIcon('wind_speed_icon', 'hass:weather-windy')}
+            ${this.sizedText('wind_speed_value', dWindSpeed)} ${this.sizedText('wind_speed_unit', this.ll('units')[this.unitSpeed])} <br>
           ` : ''}
           ${showWindgustspeed && wind_gust_speed !== undefined ? html`
-            <ha-icon icon="hass:weather-windy-variant"></ha-icon>
-            ${wind_gust_speed} ${this.ll('units')[this.unitSpeed]}
+            ${this.sizedIcon('wind_gust_icon', 'hass:weather-windy-variant')}
+            ${this.sizedText('wind_gust_value', wind_gust_speed)} ${this.sizedText('wind_gust_unit', this.ll('units')[this.unitSpeed])}
           ` : ''}
         </div>
       ` : ''}
@@ -1265,10 +1302,10 @@ const timeOptions = {
 };
 
   return html`
-    <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
-      ${new Date(sun.attributes.next_rising).toLocaleTimeString(language, timeOptions)}<br>
-    <ha-icon icon="mdi:weather-sunset-down"></ha-icon>
-      ${new Date(sun.attributes.next_setting).toLocaleTimeString(language, timeOptions)}
+    ${this.sizedIcon('sunrise_icon', 'mdi:weather-sunset-up')}
+      ${this.sizedText('sunrise_time', new Date(sun.attributes.next_rising).toLocaleTimeString(language, timeOptions))}<br>
+    ${this.sizedIcon('sunset_icon', 'mdi:weather-sunset-down')}
+      ${this.sizedText('sunset_time', new Date(sun.attributes.next_setting).toLocaleTimeString(language, timeOptions))}
   `;
 }
 
@@ -1316,9 +1353,9 @@ renderForecastConditionIcons({ config, forecastItems, sun } = this) {
           const iconSrc = config.animated_icons ?
             `${this.baseIconPath}${weatherIcons[condition]}.svg` :
             `${this.config.icons}${weatherIcons[condition]}.svg`;
-          iconHtml = html`<img class="icon" src="${iconSrc}" alt="">`;
+          iconHtml = html`<img class="icon" data-size="forecast_condition_icon" src="${iconSrc}" alt="">`;
         } else {
-          iconHtml = html`<ha-icon icon="${this.getWeatherIcon(condition, sun.state)}"></ha-icon>`;
+          iconHtml = html`<ha-icon data-size="forecast_condition_icon" icon="${this.getWeatherIcon(condition, sun.state)}"></ha-icon>`;
         }
 
         return html`
@@ -1374,9 +1411,9 @@ renderWind({ config, weather, windSpeed, windDirection, forecastItems } = this) 
 
           return html`
             <div class="wind-detail">
-              <ha-icon class="wind-icon" icon="hass:${this.getWindDirIcon(item.wind_bearing)}"></ha-icon>
-              <span class="wind-speed">${dWindSpeed}</span>
-              <span class="wind-unit">${this.ll('units')[this.unitSpeed]}</span>
+              <ha-icon class="wind-icon" data-size="forecast_wind_icon" icon="hass:${this.getWindDirIcon(item.wind_bearing)}"></ha-icon>
+              <span class="wind-speed" data-size="forecast_wind_speed">${dWindSpeed}</span>
+              <span class="wind-unit" data-size="forecast_wind_unit">${this.ll('units')[this.unitSpeed]}</span>
             </div>
           `;
         })}
@@ -1398,14 +1435,6 @@ renderLastUpdated() {
 
   const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
 
-  let formattedLastUpdated;
-
-  if (hoursAgo > 0) {
-    formattedLastUpdated = formatter.format(-hoursAgo, 'hour');
-  } else {
-    formattedLastUpdated = formatter.format(-minutesAgo, 'minute');
-  }
-
   const showLastUpdated = this.config.show_last_changed == true;
 
   if (!showLastUpdated) {
@@ -1415,7 +1444,8 @@ renderLastUpdated() {
   return html`
     <div class="updated">
       <div>
-        ${formattedLastUpdated}
+        ${formatter.formatToParts(hoursAgo > 0 ? -hoursAgo : -minutesAgo, hoursAgo > 0 ? 'hour' : 'minute')
+          .map(part => this.sizedText(part.type === 'literal' ? 'updated_text' : 'updated_number', part.value, 13))}
       </div>
     </div>
   `;
