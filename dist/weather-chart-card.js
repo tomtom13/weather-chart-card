@@ -1278,6 +1278,20 @@ class WeatherChartCardEditor extends s {
               Show Attributes
             </label>
           </div>
+          <div class="textfield-container">
+            <ha-select
+              naturalMenuWidth
+              fixedMenuPosition
+              label="Attributes position"
+              .value=${this._config.attributes_position || 'row'}
+              @change=${(e) => this._valueChanged(e, 'attributes_position')}
+              @closed=${(ev) => ev.stopPropagation()}
+            >
+              <ha-list-item value="row">Separate row (default)</ha-list-item>
+              <ha-list-item value="center">Header — centre</ha-list-item>
+              <ha-list-item value="left">Header — left</ha-list-item>
+            </ha-select>
+          </div>
           <div class="switch-container">
             <ha-switch
               @change="${(e) => this._valueChanged(e, 'show_humidity')}"
@@ -18061,6 +18075,7 @@ static getStubConfig(hass, unusedEntities, allEntities) {
     show_temperature: true,
     show_current_condition: true,
     show_attributes: true,
+    attributes_position: 'row',
     show_time: false,
     show_time_seconds: false,
     show_day: false,
@@ -18128,6 +18143,7 @@ setConfig(config) {
     show_visibility: false,
     show_last_changed: false,
     show_description: false,
+    attributes_position: 'row',
     ...config,
     forecast: {
       precipitation_type: 'rainfall',
@@ -18838,6 +18854,11 @@ updateChart({ forecasts, forecastChart } = this) {
   }
 }
 
+  get attributesInHeader() {
+    return this.config.show_main !== false && this.config.show_attributes !== false &&
+      ['center', 'left'].includes(this.config.attributes_position);
+  }
+
   render({config, _hass, weather} = this) {
     if (!config || !_hass) {
       return x``;
@@ -18907,6 +18928,44 @@ updateChart({ forecasts, forecastChart } = this) {
           margin-bottom: 6px;
       	  font-weight: 300;
           direction: ltr;
+        }
+        .header--center,
+        .header--left {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          column-gap: 16px;
+          align-items: center;
+          margin-bottom: 10px;
+        }
+        .header--center .main,
+        .header--left .main {
+          margin-bottom: 0;
+          min-width: 0;
+        }
+        .header--center > .attributes,
+        .header--left > .attributes {
+          grid-column: 2;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 16px;
+          min-width: 0;
+          margin-bottom: 0;
+        }
+        .header--left > .attributes {
+          justify-content: flex-start;
+        }
+        .header--center > .attributes > div,
+        .header--left > .attributes > div {
+          max-width: 100%;
+          overflow-wrap: anywhere;
+        }
+        .header--center > .current-time,
+        .header--left > .current-time {
+          grid-column: 3;
+          position: static;
+          justify-self: end;
+          line-height: 0.9;
+          white-space: nowrap;
         }
         .chart-container {
           position: relative;
@@ -18997,7 +19056,7 @@ updateChart({ forecasts, forecastChart } = this) {
       <ha-card header="${config.title}">
         <div class="card">
           ${this.renderMain()}
-          ${this.renderAttributes()}
+          ${this.attributesInHeader ? '' : this.renderAttributes()}
           <div class="chart-container">
             <canvas id="forecastChart"></canvas>
           </div>
@@ -19049,7 +19108,7 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
     const currentDayOfWeek = currentDate.toLocaleString(this.language, { weekday: 'long' }).toUpperCase();
     const currentDateFormatted = currentDate.toLocaleDateString(this.language, { month: 'long', day: 'numeric' });
 
-    const mainDiv = this.shadowRoot.querySelector('.main');
+    const mainDiv = this.shadowRoot.querySelector('.header');
     if (mainDiv) {
       const clockElement = mainDiv.querySelector('#digital-clock');
       if (clockElement) {
@@ -19076,7 +19135,17 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
     setInterval(updateClock, 1000);
   }
 
+  const clockHtml = showTime ? x`
+    <div class="current-time">
+      <div id="digital-clock"></div>
+      ${showDay ? x`<div class="date-text day"></div>` : ''}
+      ${showDay && showDate ? x` ` : ''}
+      ${showDate ? x`<div class="date-text date"></div>` : ''}
+    </div>
+  ` : '';
+
   return x`
+    <div class="header ${this.attributesInHeader ? `header--${config.attributes_position}` : ''}">
     <div class="main">
       ${iconHtml}
       <div>
@@ -19099,15 +19168,11 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
             </div>
           ` : ''}
         </div>
-        ${showTime ? x`
-          <div class="current-time">
-            <div id="digital-clock"></div>
-            ${showDay ? x`<div class="date-text day"></div>` : ''}
-            ${showDay && showDate ? x` ` : ''}
-            ${showDate ? x`<div class="date-text date"></div>` : ''}
-          </div>
-        ` : ''}
+        ${this.attributesInHeader ? '' : clockHtml}
       </div>
+    </div>
+    ${this.attributesInHeader ? this.renderAttributes() : ''}
+    ${this.attributesInHeader ? clockHtml : ''}
     </div>
   `;
 }

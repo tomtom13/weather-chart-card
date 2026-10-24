@@ -415,6 +415,20 @@ class WeatherChartCardEditor extends LitElement {
               Show Attributes
             </label>
           </div>
+          <div class="textfield-container">
+            <ha-select
+              naturalMenuWidth
+              fixedMenuPosition
+              label="Attributes position"
+              .value=${this._config.attributes_position || 'row'}
+              @change=${(e) => this._valueChanged(e, 'attributes_position')}
+              @closed=${(ev) => ev.stopPropagation()}
+            >
+              <ha-list-item value="row">Separate row (default)</ha-list-item>
+              <ha-list-item value="center">Header — centre</ha-list-item>
+              <ha-list-item value="left">Header — left</ha-list-item>
+            </ha-select>
+          </div>
           <div class="switch-container">
             <ha-switch
               @change="${(e) => this._valueChanged(e, 'show_humidity')}"
