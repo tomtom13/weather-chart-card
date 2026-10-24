@@ -1,5 +1,5 @@
 {
   "name": "Weather Chart Card",
-  "render_readme": true,
+  "homeassistant": "2026.10.2",
   "filename": "weather-chart-card.js"
 }

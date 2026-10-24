@@ -1,5 +1,3 @@
-'use strict';
-
 const locale = {
   cs: {
     'tempHi': 'Teplota',
@@ -865,6 +863,38 @@ function convertWindSpeed(value, from, to) {
   return Number.isFinite(converted) ? Math.round(converted) : undefined;
 }
 
+// Weather values have already been converted by HASS into the entity's reported
+// units. Only convert when a target or alternative sensor uses a different unit.
+const PRESSURE_UNITS = ['hPa', 'kPa', 'mbar', 'inHg', 'mmHg'];
+const HPA = { hPa: 1, kPa: 10, mbar: 1, inHg: 33.8638866667, mmHg: 1.33322387415 };
+const METRES = { m: 1, km: 1000, mi: 1609.344, ft: 0.3048 };
+const number$1 = value => value === undefined || value === null || value === '' || !Number.isFinite(Number(value)) ? undefined : Number(value);
+
+function convertTemperature(value, from, to) {
+  const n = number$1(value);
+  if (n === undefined || from === to) return n;
+  const celsius = from === '°C' ? n : from === '°F' ? (n - 32) * 5 / 9 : from === 'K' ? n - 273.15 : undefined;
+  if (celsius === undefined) return undefined;
+  const converted = to === '°C' ? celsius : to === '°F' ? celsius * 9 / 5 + 32 : to === 'K' ? celsius + 273.15 : undefined;
+  return converted === undefined ? undefined : Number(converted.toFixed(2));
+}
+
+function convertPressure(value, from, to) {
+  const n = number$1(value);
+  if (n === undefined || !HPA[from] || !HPA[to]) return undefined;
+  const converted = n * HPA[from] / HPA[to];
+  if (to === 'inHg') return converted.toFixed(2);
+  if (to === 'hPa' || to === 'mmHg') return Math.round(converted);
+  return Number(converted.toFixed(2));
+}
+
+function convertVisibility(value, from, to) {
+  const n = number$1(value);
+  if (n === undefined || from === to) return n;
+  if (!METRES[from] || !METRES[to]) return undefined;
+  return Number((n * METRES[from] / METRES[to]).toFixed(2));
+}
+
 const cardinalDirectionsIcon = [
   'arrow-down', 'arrow-bottom-left', 'arrow-left',
   'arrow-top-left', 'arrow-up', 'arrow-top-right',
@@ -943,894 +973,241 @@ var t;const i=window,s$1=i.trustedTypes,e=s$1?s$1.createPolicy("lit-html",{creat
  * SPDX-License-Identifier: BSD-3-Clause
  */var l,o;class s extends u$1{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0;}createRenderRoot(){var t,e;const i=super.createRenderRoot();return null!==(t=(e=this.renderOptions).renderBefore)&&void 0!==t||(e.renderBefore=i.firstChild),i}update(t){const i=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(t),this._$Do=D(i,this.renderRoot,this.renderOptions);}connectedCallback(){var t;super.connectedCallback(),null===(t=this._$Do)||void 0===t||t.setConnected(true);}disconnectedCallback(){var t;super.disconnectedCallback(),null===(t=this._$Do)||void 0===t||t.setConnected(false);}render(){return T}}s.finalized=true,s._$litElement$=true,null===(l=globalThis.litElementHydrateSupport)||void 0===l||l.call(globalThis,{LitElement:s});const n$1=globalThis.litElementPolyfillSupport;null==n$1||n$1({LitElement:s});(null!==(o=globalThis.litElementVersions)&&void 0!==o?o:globalThis.litElementVersions=[]).push("3.3.3");
 
-const UNIT_POSITIONS = [
-  { value: 'inline', label: 'Beside number' },
-  { value: 'below', label: 'Below number' },
-  { value: 'hidden', label: 'Hidden' },
-];
-const LAYOUT_SCHEMA = [
-  { name: 'wind_unit_position', label: 'Forecast wind unit position', selector: { select: { options: UNIT_POSITIONS, mode: 'dropdown' } } },
-  { name: 'precipitation_unit_position', label: 'Precipitation unit position', selector: { select: { options: UNIT_POSITIONS, mode: 'dropdown' } } },
-  { name: 'precipitation_border', label: 'Box around precipitation labels', selector: { boolean: {} } },
-  { name: 'labels_bold', label: 'Bold forecast day/hour labels', selector: { boolean: {} } },
-  { name: 'weekday_format', label: 'Daily forecast weekday names', selector: { select: { options: [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], mode: 'dropdown' } } },
-  { name: 'padding_scale', label: 'Spacing scale (0.70 = 30% less)', selector: { number: { mode: 'box', min: 0, step: 0.01 } } },
+// Native editor field inventory. Defaults mirror the renderer's public contract.
+const field = (name, label, selector, defaultValue, required = false) => ({ name, label, selector, defaultValue, required });
+const bool = (name, label, value) => field(name, label, { boolean: {} }, value);
+const text = (name, label, value = '') => field(name, label, { text: {} }, value);
+const number = (name, label, value, min = 1, max) => field(name, label, { number: { mode: 'box', min, step: 1, ...(max === undefined ? {} : { max }) } }, value);
+const select = (name, label, options, value) => field(name, label, { select: { mode: 'dropdown', options: options.map(option => typeof option === 'string' ? { value: option, label: option } : option) } }, value);
+const positions$1 = [{ value: 'inline', label: 'Beside number' }, { value: 'below', label: 'Below number' }, { value: 'hidden', label: 'Hidden' }];
+const languageNames = new Intl.DisplayNames(['en'], { type: 'language' });
+
+const MAIN_FIELDS = [
+  field('entity', 'Weather entity', { entity: { domain: 'weather' } }, undefined, true),
+  text('title', 'Title'),
+  select('locale', 'Language', [{ value: 'auto', label: 'HASS default' }, ...Object.keys(locale).map(value => ({ value, label: languageNames.of(value) }))], 'auto'),
+  bool('show_main', 'Show weather summary', true),
+  bool('show_temperature', 'Show temperature', true),
+  bool('show_current_condition', 'Show condition text', true),
+  bool('show_attributes', 'Show weather attributes', true),
+  select('attributes_position', 'Attributes position', [{ value: 'row', label: 'Separate row' }, { value: 'center', label: 'Header — centre' }, { value: 'left', label: 'Header — left' }], 'row'),
+  bool('show_humidity', 'Show humidity', true),
+  bool('show_pressure', 'Show pressure', true),
+  bool('show_wind_direction', 'Show wind direction', true),
+  bool('show_wind_speed', 'Show current wind speed', true),
+  bool('show_sun', 'Show sunrise and sunset', true),
+  bool('show_feels_like', 'Show feels-like temperature', false),
+  bool('show_dew_point', 'Show dew point', false),
+  bool('show_wind_gust_speed', 'Show wind gust speed', false),
+  bool('show_visibility', 'Show visibility', false),
+  bool('show_description', 'Show weather description', false),
+  bool('show_last_changed', 'Show last-changed time', false),
+  bool('show_time', 'Show clock', false),
+  bool('show_time_seconds', 'Show clock seconds', false),
+  bool('show_day', 'Show current weekday', false),
+  bool('show_date', 'Show current date', false),
+  bool('use_12hour_format', 'Use 12-hour clock', false),
+  bool('autoscroll', 'Scroll past forecast points automatically', false),
+  bool('animated_icons', 'Use animated weather icons', false),
+  select('icon_style', 'Animated icon set', ['style1', 'style2'], 'style1'),
+  text('icons', 'Custom SVG icon base URL'),
+  number('icons_size', 'Animated/custom forecast icon baseline (px)', 25),
+  number('current_temp_size', 'Current temperature baseline (px)', 28),
+  number('time_size', 'Clock baseline (px)', 26),
+  number('day_date_size', 'Current day/date baseline (px)', 15),
 ];
 
-const ALT_SCHEMA = [
-  { name: "temp", title: "Alternative temperature sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "feels_like", title: "Alternative feels like temperature sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "description", title: "Alternative weather description sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "press", title: "Alternative pressure sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "humid", title: "Alternative humidity sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "uv", title: "Alternative UV index sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "winddir", title: "Alternative wind bearing sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "windspeed", title: "Alternative wind speed sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "dew_point", title: "Alternative dew pointsensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "wind_gust_speed", title: "Alternative wind gust speed sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "visibility", title: "Alternative visibility sensor", selector: { entity: { domain: 'sensor' } } },
+const FORECAST_FIELDS = [
+  select('type', 'Forecast type', [{ value: 'daily', label: 'Daily' }, { value: 'hourly', label: 'Hourly' }], 'daily'),
+  select('style', 'Chart style', [{ value: 'style1', label: 'Style 1 — boxed values' }, { value: 'style2', label: 'Style 2 — plain values' }], 'style1'),
+  select('precipitation_type', 'Precipitation data', [{ value: 'rainfall', label: 'Amount' }, { value: 'probability', label: 'Probability' }], 'rainfall'),
+  bool('show_probability', 'Also show precipitation probability', false),
+  bool('condition_icons', 'Show forecast condition icons', true),
+  bool('show_wind_forecast', 'Show forecast wind indicators', true),
+  bool('round_temp', 'Round forecast temperatures', false),
+  bool('disable_animation', 'Disable chart animation', false),
+  number('number_of_forecasts', 'Forecast points (0 = automatic)', 0, 0),
+  number('chart_height', 'Chart height (px)', 180),
+  number('labels_font_size', 'Temperature/precipitation label baseline (px)', 11),
+  number('precip_bar_size', 'Precipitation bar width (%)', 100, 0, 100),
+  text('temperature1_color', 'High-temperature line color', 'rgba(255, 152, 0, 1.0)'),
+  text('temperature2_color', 'Low-temperature line color', 'rgba(68, 115, 158, 1.0)'),
+  text('precipitation_color', 'Precipitation bar color', 'rgba(132, 209, 253, 1.0)'),
+  text('chart_datetime_color', 'Day/hour label color (blank = theme)'),
+  text('chart_text_color', 'Value label color (blank = default, auto = theme)'),
 ];
+
+const UNIT_FIELDS = [
+  select('speed', 'Wind unit (current, gusts and forecasts)', [{ value: 'auto', label: 'Weather entity' }, ...WIND_SPEED_UNITS.filter(value => value !== 'Beaufort')], 'auto'),
+  select('pressure', 'Pressure unit', [{ value: 'auto', label: 'Weather entity' }, ...PRESSURE_UNITS], 'hPa'),
+  select('visibility', 'Visibility unit', [{ value: 'auto', label: 'Weather entity' }, 'km', 'mi'], 'auto'),
+];
+
+const LAYOUT_FIELDS = [
+  select('wind_unit_position', 'Forecast wind unit position', positions$1, 'inline'),
+  select('precipitation_unit_position', 'Precipitation unit position', positions$1, 'inline'),
+  bool('precipitation_border', 'Box around precipitation labels', true),
+  bool('labels_bold', 'Bold forecast day/hour labels', false),
+  select('weekday_format', 'Daily forecast weekday names', [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], 'short'),
+  field('padding_scale', 'Spacing scale (0.70 = 30% less)', { number: { mode: 'box', min: 0, step: 0.01 } }, 0.7),
+];
+
+const ALTERNATE_FIELDS = [
+  ['temp', 'Alternative temperature sensor'], ['feels_like', 'Alternative feels-like sensor'],
+  ['description', 'Alternative description sensor'], ['press', 'Alternative pressure sensor'],
+  ['humid', 'Alternative humidity sensor'], ['uv', 'Alternative UV sensor'],
+  ['winddir', 'Alternative wind-bearing sensor (degrees)'], ['windspeed', 'Alternative wind-speed sensor'],
+  ['dew_point', 'Alternative dew-point sensor'], ['wind_gust_speed', 'Alternative gust sensor'],
+  ['visibility', 'Alternative visibility sensor'],
+].map(([name, label]) => field(name, label, { entity: { domain: 'sensor' } }, undefined));
+
+const PAGES = [['card', 'Main'], ['forecast', 'Forecast'], ['layout', 'Layout'], ['units', 'Units'], ['sizes', 'Sizes'], ['alternate', 'Alternate entities']];
 
 class WeatherChartCardEditor extends s {
   static get properties() {
-    return {
-      _config: { type: Object },
-      currentPage: { type: String },
-      entities: { type: Array },
-      hass: { type: Object },
-      _entity: { type: String },
-    };
+    return { _config: { type: Object }, currentPage: { type: String }, hass: { type: Object } };
   }
 
   constructor() {
     super();
     this.currentPage = 'card';
-    this._entity = '';
-    this.entities = [];
-    this._formValueChanged = this._formValueChanged.bind(this);
   }
 
   setConfig(config) {
-    if (!config) {
-      throw new Error("Invalid configuration");
-    }
+    if (!config || typeof config !== 'object') throw new Error('Invalid card configuration');
     this._config = config;
-    this._entity = config.entity || '';
-    this.hasApparentTemperature = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.apparent_temperature !== undefined
-    ) || config.feels_like !== undefined;
-    this.hasDewpoint = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.dew_point !== undefined
-    ) || config.dew_point !== undefined;
-    this.hasWindgustspeed = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.wind_gust_speed !== undefined
-    ) || config.wind_gust_speed !== undefined;
-    this.hasVisibility = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.visibility !== undefined
-    ) || config.visibility !== undefined;
-    this.hasDescription = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.description !== undefined
-    ) || config.description !== undefined;
-    this.fetchEntities();	  
-    this.requestUpdate();
   }
 
-  get config() {
-    return this._config;
+  get config() { return this._config; }
+
+  configChanged(config) {
+    this._config = config;
+    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
   }
 
-  updated(changedProperties) {
-    if (changedProperties.has('hass')) {
-      this.fetchEntities();
+  showPage(page) { this.currentPage = page; }
+
+  _data(fields, source) {
+    return Object.fromEntries(fields.map(field => {
+      let value = source[field.name];
+      if (value === undefined || value === null) value = field.defaultValue;
+      if (field.selector.number && value !== undefined && value !== '') value = Number(value);
+      if (field.selector.select && value === '' && field.selector.select.options.some(option => option.value === 'auto')) value = 'auto';
+      if (field.name === 'speed' && value === 'Beaufort') value = 'Bft';
+      return [field.name, value];
+    }));
+  }
+
+  _sectionChanged(event, fields, scope) {
+    const config = { ...this._config };
+    const target = scope ? { ...config[scope] } : config;
+    const data = event.detail.value;
+    for (const field of fields) {
+      if (!Object.prototype.hasOwnProperty.call(data, field.name)) continue;
+      const value = data[field.name];
+      if (scope === 'units' && value === 'auto') target[field.name] = '';
+      else if (value === undefined || value === null || value === '' || (field.name === 'locale' && value === 'auto')) delete target[field.name];
+      else target[field.name] = field.selector.number ? Number(value) : value;
     }
-    if (changedProperties.has('_config') && this._config && this._config.entity) {
-      this._entity = this._config.entity;
-    }
-  }
-
-  fetchEntities() {
-    if (this.hass) {
-      this.entities = Object.keys(this.hass.states).filter((e) => e.startsWith('weather.'));
-      this.requestUpdate();
-    }
-  }
-
-  _EntityChanged(event, key) {
-    if (!this._config) {
-      return;
-    }
-    const newConfig = { ...this._config };
-    newConfig.entity = event.target.value;
-    this._entity = event.target.value;
-    this.configChanged(newConfig);
-  }
-
-  configChanged(newConfig) {
-    const event = new Event("config-changed", {
-      bubbles: true,
-      composed: true,
-    });
-    event.detail = { config: newConfig };
-    this.dispatchEvent(event);
+    if (scope) config[scope] = target;
+    // A GUI unit choice replaces, rather than conflicts with, the legacy alias.
+    if (scope === 'units') delete config.speed;
+    this.configChanged(config);
   }
 
   _layoutChanged(event) {
     const data = event.detail.value;
-    this.configChanged({
-      ...this._config,
-      padding_scale: data.padding_scale === undefined ? 0.7 : Number(data.padding_scale),
-      forecast: {
-        ...this._config.forecast,
-        wind_unit_position: data.wind_unit_position || 'inline',
-        precipitation_unit_position: data.precipitation_unit_position || 'inline',
-        precipitation_border: data.precipitation_border !== false,
-        labels_bold: data.labels_bold === true,
-        weekday_format: data.weekday_format || 'short',
-      },
-    });
+    const forecast = { ...this._config.forecast };
+    for (const field of LAYOUT_FIELDS) {
+      if (field.name !== 'padding_scale') forecast[field.name] = data[field.name] === undefined ? field.defaultValue : data[field.name];
+    }
+    this.configChanged({ ...this._config, forecast, padding_scale: data.padding_scale === undefined ? 0.7 : Number(data.padding_scale) });
   }
 
   _sizeOffsetsChanged(event) {
-    const values = Object.fromEntries(Object.entries(event.detail.value).map(([key, value]) =>
-      [key, value === undefined || value === null || value === '' ? 0 : Number(value)]));
+    const values = Object.fromEntries(Object.entries(event.detail.value).map(([key, value]) => [key, value === undefined || value === null || value === '' ? 0 : Number(value)]));
     if (Object.values(values).some(value => !Number.isFinite(value))) return;
-    this.configChanged({
-      ...this._config,
-      size_offsets: normaliseSizeOffsets({ ...this._config.size_offsets, ...values }),
-    });
+    this.configChanged({ ...this._config, size_offsets: normaliseSizeOffsets({ ...this._config.size_offsets, ...values }) });
   }
 
-  _valueChanged(event, key) {
-    if (!this._config) {
-      return;
-    }
-
-    let newConfig = { ...this._config };
-
-    if (key.includes('.')) {
-      const parts = key.split('.');
-      let currentLevel = newConfig;
-
-      for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i];
-
-        currentLevel[part] = { ...currentLevel[part] };
-
-        currentLevel = currentLevel[part];
-      }
-
-      const finalKey = parts[parts.length - 1];
-      if (event.target.checked !== undefined) {
-        currentLevel[finalKey] = event.target.checked;
-      } else {
-        currentLevel[finalKey] = event.target.value;
-      }
-    } else {
-      if (event.target.checked !== undefined) {
-        newConfig[key] = event.target.checked;
-      } else {
-        newConfig[key] = event.target.value;
-      }
-    }
-
-    this.configChanged(newConfig);
-    this.requestUpdate();
+  _schema(fields) {
+    return fields.map(({ name, label, selector, required }) => ({ name, label, selector, required }));
   }
 
-  _handleStyleChange(event) {
-    if (!this._config) {
-      return;
-    }
-    const newConfig = JSON.parse(JSON.stringify(this._config));
-    newConfig.forecast.style = event.target.value;
-    this.configChanged(newConfig);
-    this.requestUpdate();
-  }
-
-  _handleTypeChange(event) {
-    if (!this._config) {
-      return;
-    }
-    const newConfig = JSON.parse(JSON.stringify(this._config));
-    newConfig.forecast.type = event.target.value;
-    this.configChanged(newConfig);
-    this.requestUpdate();
-  }
-
-  _handleIconStyleChange(event) {
-    if (!this._config) {
-      return;
-    }
-    const newConfig = JSON.parse(JSON.stringify(this._config));
-    newConfig.icon_style = event.target.value;
-    this.configChanged(newConfig);
-    this.requestUpdate();
-  }
-
-  _handlePrecipitationTypeChange(e) {
-    const newValue = e.target.value;
-    this.config.forecast.precipitation_type = newValue;
-  }
-
-  _formValueChanged(event) {
-    if (event.target.tagName.toLowerCase() === 'ha-form') {
-      const newConfig = event.detail.value;
-      this.configChanged(newConfig);
-      this.requestUpdate();
-    }
-  }
-
-  showPage(pageName) {
-    this.currentPage = pageName;
-    this.requestUpdate();
+  _form(fields, id, scope) {
+    let source = scope ? this._config[scope] || {} : this._config;
+    if (scope === 'units' && source.speed === undefined && this._config.speed) source = { ...source, speed: this._config.speed };
+    return x`<ha-form
+      data-editor-section=${id}
+      .hass=${this.hass}
+      .data=${this._data(fields, source)}
+      .schema=${this._schema(fields)}
+      .computeLabel=${schema => schema.label || schema.name}
+      @value-changed=${event => this._sectionChanged(event, fields, scope)}
+    ></ha-form>`;
   }
 
   render() {
-    if (this._config && this._config.entity !== this._entity) {
-      this._entity = this._config.entity;
-    }
-    const forecastConfig = this._config.forecast || {};
-    const unitsConfig = this._config.units || {};
-    this._config.show_time !== false;
-
-
+    if (!this._config) return x``;
+    const forecast = this._config.forecast || {};
     return x`
       <style>
-        .switch-label {
-          padding-left: 14px;
-        }
-        .switch-container {
-          margin-bottom: 12px;
-        }
-        .page-container {
-	  display: none;
-        }
-        .page-container.active {
-          display: block;
-        }
-        .time-container {
-          display: flex;
-          flex-direction: row;
-          margin-bottom: 12px;
-        }
-        .icon-container {
-          display: flex;
-          flex-direction: row;
-          margin-bottom: 12px;
-        }
-        .switch-right {
-          display: flex;
-          flex-direction: row;
-          align-items: center;
-        }
-        .checkbox-container {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .textfield-container {
-          display: flex;
-          flex-direction: column;
-          margin-bottom: 10px;
-	  gap: 20px;
-        }
-        .radio-container {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .radio-group {
-          display: flex;
-          align-items: center;
-        }
-        .radio-group label {
-          margin-left: 4px;
-        }
-	div.buttons-container {
-          border-bottom: 2px solid #ccc;
-          padding-bottom: 10px;
-          margin-bottom: 20px;
-        }
-        .flex-container {
-          display: flex;
-          flex-direction: row;
-          gap: 20px;
-        }
-        .flex-container ha-textfield {
-          flex-basis: 50%;
-          flex-grow: 1;
-        }
+        :host { display: block; }
+        .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+        .tabs .active { outline: 2px solid var(--primary-color); border-radius: 8px; }
+        .page { display: none; }
+        .page.active { display: block; }
+        details { margin: 12px 0; }
+        summary { cursor: pointer; font-weight: 500; padding: 8px 0; }
+        p { color: var(--secondary-text-color); line-height: 1.5; }
       </style>
-      <div>
-      <div class="textfield-container">
-<ha-select
-  naturalMenuWidth
-  fixedMenuPosition
-  label="Entity"
-  .configValue=${'entity'}
-  .value=${this._entity}
-  @change=${(e) => this._EntityChanged(e, 'entity')}
-  @closed=${(ev) => ev.stopPropagation()}
->
-  ${this.entities.map((entity) => x`<ha-list-item .value=${entity}>${entity}</ha-list-item>`)}
-</ha-select>
-      <ha-textfield
-        label="Title"
-        .value="${this._config.title || ''}"
-        @change="${(e) => this._valueChanged(e, 'title')}"
-      ></ha-textfield>
-       </div>
-
-      <h5>Forecast type:</h5>
-
-      <div class="radio-group">
-        <ha-radio
-          name="type"
-          value="daily"
-          @change="${this._handleTypeChange}"
-          .checked="${forecastConfig.type === 'daily'}"
-        ></ha-radio>
-        <label class="check-label">
-          Daily forecast
-        </label>
+      <nav class="tabs" aria-label="Weather card configuration">
+        ${PAGES.map(([id, title]) => x`<ha-button class=${this.currentPage === id ? 'active' : ''} aria-pressed=${this.currentPage === id ? 'true' : 'false'} @click=${() => this.showPage(id)}>${title}</ha-button>`)}
+      </nav>
+      <div class="page ${this.currentPage === 'card' ? 'active' : ''}">
+        <p>Choose the weather entity and current conditions to display. Optional attributes appear only when the entity or an alternate sensor provides them.</p>
+        ${this._form(MAIN_FIELDS, 'card')}
       </div>
-
-      <div class="radio-group">
-        <ha-radio
-          name="type"
-          value="hourly"
-          @change="${this._handleTypeChange}"
-          .checked="${forecastConfig.type === 'hourly'}"
-        ></ha-radio>
-        <label class="check-label">
-          Hourly forecast
-        </label>
+      <div class="page ${this.currentPage === 'forecast' ? 'active' : ''}">
+        <p>The provider must supply the selected forecast type. The point count limits supplied data; it does not request additional days.</p>
+        ${this._form(FORECAST_FIELDS, 'forecast', 'forecast')}
       </div>
-
-      <h5>Chart style:</h5>
-      <div class="radio-container">
-        <div class="switch-right">
-          <ha-radio
-            name="style"
-            value="style1"
-            @change="${this._handleStyleChange}"
-            .checked="${forecastConfig.style === 'style1'}"
-          ></ha-radio>
-          <label class="check-label">
-            Chart style 1
-          </label>
-        </div>
-
-        <div class="switch-right">
-          <ha-radio
-            name="style"
-            value="style2"
-            @change="${this._handleStyleChange}"
-            .checked="${forecastConfig.style === 'style2'}"
-          ></ha-radio>
-          <label class="check-label">
-            Chart style 2
-          </label>
-        </div>
+      <div class="page ${this.currentPage === 'layout' ? 'active' : ''}">
+        <p>Control unit placement, forecast label weight and spacing. Select the common wind unit under Units.</p>
+        <ha-form
+          data-detail-layout data-editor-section="layout"
+          .hass=${this.hass}
+          .data=${this._data(LAYOUT_FIELDS, { ...forecast, padding_scale: this._config.padding_scale })}
+          .schema=${this._schema(LAYOUT_FIELDS)}
+          .computeLabel=${schema => schema.label}
+          @value-changed=${this._layoutChanged}
+        ></ha-form>
       </div>
-
-        <!-- Buttons to switch between pages -->
-       <h4>Settings:</h4>
-       <div class="buttons-container">
-         <mwc-button @click="${() => this.showPage('card')}">Main</mwc-button>
-         <mwc-button @click="${() => this.showPage('forecast')}">Forecast</mwc-button>
-         <mwc-button @click="${() => this.showPage('units')}">Units</mwc-button>
-         <mwc-button @click="${() => this.showPage('alternate')}">Alternate entities</mwc-button>
-         <ha-button @click="${() => this.showPage('sizes')}">Sizes</ha-button>
-         <ha-button @click="${() => this.showPage('layout')}">Layout</ha-button>
-       </div>
-
-        <!-- Card Settings Page -->
-        <div class="page-container ${this.currentPage === 'card' ? 'active' : ''}">
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_main')}"
-              .checked="${this._config.show_main !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Main
-            </label>
-          </div>
-      <div class="switch-container">
-        ${this.hasApparentTemperature ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_feels_like')}"
-            .checked="${this._config.show_feels_like !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Feels Like Temperature
-          </label>
-        ` : ''}
+      <div class="page ${this.currentPage === 'units' ? 'active' : ''}">
+        <p>Wind units apply to current speed, gusts and all forecast indicators. Temperature follows the weather entity's display unit.</p>
+        ${this._form(UNIT_FIELDS, 'units', 'units')}
       </div>
-      <div class="switch-container">
-        ${this.hasDescription ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_description')}"
-            .checked="${this._config.show_description !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Weather Description
-          </label>
-        ` : ''}
-      </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_temperature')}"
-              .checked="${this._config.show_temperature !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Current Temperature
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_current_condition')}"
-              .checked="${this._config.show_current_condition !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Current Weather Condition
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_attributes')}"
-              .checked="${this._config.show_attributes !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Attributes
-            </label>
-          </div>
-          <div class="textfield-container">
-            <ha-select
-              label="Attributes position"
-              .value=${this._config.attributes_position || 'row'}
-              .options=${[
-                { value: 'row', label: 'Separate row (default)' },
-                { value: 'center', label: 'Header — centre' },
-                { value: 'left', label: 'Header — left' },
-              ]}
-              @selected=${(e) => this.configChanged({ ...this._config, attributes_position: e.detail.value })}
-            ></ha-select>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_humidity')}"
-              .checked="${this._config.show_humidity !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Humidity
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_pressure')}"
-              .checked="${this._config.show_pressure !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Pressure
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_sun')}"
-              .checked="${this._config.show_sun !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Sun
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_wind_direction')}"
-              .checked="${this._config.show_wind_direction !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Wind Direction
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_wind_speed')}"
-              .checked="${this._config.show_wind_speed !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Wind Speed
-            </label>
-	  </div>
-      <div class="switch-container">
-        ${this.hasDewpoint ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_dew_point')}"
-            .checked="${this._config.show_dew_point !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Dew Point
-          </label>
-        ` : ''}
-      </div>
-      <div class="switch-container">
-        ${this.hasWindgustspeed ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_wind_gust_speed')}"
-            .checked="${this._config.show_wind_gust_speed !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Wind Gust Speed
-          </label>
-        ` : ''}
-      </div>
-      <div class="switch-container">
-        ${this.hasVisibility ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_visibility')}"
-            .checked="${this._config.show_visibility !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Visibility
-          </label>
-        ` : ''}
-      </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_last_changed')}"
-              .checked="${this._config.show_last_changed !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show when last data changed
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'use_12hour_format')}"
-              .checked="${this._config.use_12hour_format !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Use 12-Hour Format
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'autoscroll')}"
-              .checked="${this._config.autoscroll !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Autoscroll
-            </label>
-          </div>
-          <div class="time-container">
-            <div class="switch-right">
-              <ha-switch
-                @change="${(e) => this._valueChanged(e, 'show_time')}"
-                .checked="${this._config.show_time !== false}"
-              ></ha-switch>
-              <label class="switch-label">
-                Show Current Time
-              </label>
-            </div>
-            <div class="switch-right checkbox-container" style="${this._config.show_time ? 'display: flex;' : 'display: none;'}">
-              <ha-checkbox
-                @change="${(e) => this._valueChanged(e, 'show_time_seconds')}"
-                .checked="${this._config.show_time_seconds !== false}"
-              ></ha-checkbox>
-              <label class="check-label">
-                Show Seconds
-              </label>
-            </div>
-            <div class="switch-right checkbox-container" style="${this._config.show_time ? 'display: flex;' : 'display: none;'}">
-              <ha-checkbox
-                @change="${(e) => this._valueChanged(e, 'show_day')}"
-                .checked="${this._config.show_day !== false}"
-              ></ha-checkbox>
-              <label class="check-label">
-                Show Day
-              </label>
-            </div>
-            <div class="switch-right checkbox-container" style="${this._config.show_time ? 'display: flex;' : 'display: none;'}">
-              <ha-checkbox
-                @change="${(e) => this._valueChanged(e, 'show_date')}"
-                .checked="${this._config.show_date !== false}"
-              ></ha-checkbox>
-              <label class="check-label">
-                Show Date
-              </label>
-            </div>
-          </div>
-            <div class="flex-container" style="${this._config.show_time ? 'display: flex;' : 'display: none;'}">
-              <ha-textfield
-                label="Time text size"
-                type="number"
-                .value="${this._config.time_size || '26'}"
-                @change="${(e) => this._valueChanged(e, 'time_size')}"
-              ></ha-textfield>
-              <ha-textfield
-                label="Day and date text size"
-                type="number"
-                .value="${this._config.day_date_size || '15'}"
-                @change="${(e) => this._valueChanged(e, 'day_date_size')}"
-              ></ha-textfield>
-              </div>
-            <div class="icon-container">
-              <div class="switch-right">
-                <ha-switch
-                  @change="${(e) => this._valueChanged(e, 'animated_icons')}"
-                  .checked="${this._config.animated_icons === true}"
-                ></ha-switch>
-                <label class="switch-label">
-                  Use Animated Icons
-                </label>
-              </div>
-              <div class="switch-right radio-container" style="${this._config.animated_icons ? 'display: flex;' : 'display: none;'}">
-                  <ha-radio
-                    name="icon_style"
-                    value="style1"
-                    @change="${this._handleIconStyleChange}"
-                    .checked="${this._config.icon_style === 'style1'}"
-                  ></ha-radio>
-                  <label class="check-label">
-                    Style 1
-                  </label>
-                </div>
-              <div class="switch-right radio-container" style="${this._config.animated_icons ? 'display: flex;' : 'display: none;'}">
-                  <ha-radio
-                    name="icon_style"
-                    value="style2"
-                    @change="${this._handleIconStyleChange}"
-                    .checked="${this._config.icon_style === 'style2'}"
-                  ></ha-radio>
-                  <label class="check-label">
-                    Style 2
-                  </label>
-                </div>
-              </div>
-       <div class="textfield-container">
-         <ha-textfield
-           label="Icon Size for animated or custom icons"
-           type="number"
-           .value="${this._config.icons_size || '25'}"
-           @change="${(e) => this._valueChanged(e, 'icons_size')}"
-         ></ha-textfield>
-          <ha-textfield
-            label="Curent temperature Font Size"
-           type="number"
-            .value="${this._config.current_temp_size || '28'}"
-            @change="${(e) => this._valueChanged(e, 'current_temp_size')}"
-          ></ha-textfield>
-        <ha-textfield
-          label="Custom icon path"
-          .value="${this._config.icons || ''}"
-          @change="${(e) => this._valueChanged(e, 'icons')}"
-        ></ha-textfield>
-         <ha-select
-           naturalMenuWidth
-           fixedMenuPosition
-           label="Select custom language"
-           .configValue=${''}
-           .value=${this._config.locale}
-           @change=${(e) => this._valueChanged(e, 'locale')}
-           @closed=${(ev) => ev.stopPropagation()}
-         >
-           <ha-list-item .value=${''}>HA Default</ha-list-item>
-           <ha-list-item .value=${'bg'}>Bulgarian</ha-list-item>
-           <ha-list-item .value=${'ca'}>Catalan</ha-list-item>
-           <ha-list-item .value=${'cs'}>Czech</ha-list-item>
-           <ha-list-item .value=${'da'}>Danish</ha-list-item>
-           <ha-list-item .value=${'nl'}>Dutch</ha-list-item>
-           <ha-list-item .value=${'en'}>English</ha-list-item>
-           <ha-list-item .value=${'fi'}>Finnish</ha-list-item>
-           <ha-list-item .value=${'fr'}>French</ha-list-item>
-           <ha-list-item .value=${'de'}>German</ha-list-item>
-           <ha-list-item .value=${'el'}>Greek</ha-list-item>
-           <ha-list-item .value=${'hu'}>Hungarian</ha-list-item>
-           <ha-list-item .value=${'it'}>Italian</ha-list-item>
-           <ha-list-item .value=${'lt'}>Lithuanian</ha-list-item>
-           <ha-list-item .value=${'no'}>Norwegian</ha-list-item>
-           <ha-list-item .value=${'pl'}>Polish</ha-list-item>
-           <ha-list-item .value=${'pt'}>Portuguese</ha-list-item>
-           <ha-list-item .value=${'ro'}>Romanian</ha-list-item>
-           <ha-list-item .value=${'ru'}>Russian</ha-list-item>
-           <ha-list-item .value=${'sk'}>Slovak</ha-list-item>
-           <ha-list-item .value=${'es'}>Spanish</ha-list-item>
-           <ha-list-item .value=${'sv'}>Swedish</ha-list-item>
-	   <ha-list-item .value=${'uk'}>Ukrainian</ha-list-item>
-    	   <ha-list-item .value=${'ko'}>한국어</ha-list-item>
-        </ha-select>
-        </div>
-      </div>
-
-        <!-- Forecast Settings Page -->
-        <div class="page-container ${this.currentPage === 'forecast' ? 'active' : ''}">
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'forecast.condition_icons')}"
-              .checked="${forecastConfig.condition_icons !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Condition Icons
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'forecast.show_wind_forecast')}"
-              .checked="${forecastConfig.show_wind_forecast !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Wind Forecast
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'forecast.round_temp')}"
-              .checked="${forecastConfig.round_temp !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Rounding Temperatures
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'forecast.disable_animation')}"
-              .checked="${forecastConfig.disable_animation !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Disable Chart Animation
-            </label>
-          </div>
-	  <div class="textfield-container">
-          <ha-select
-            naturalMenuWidth
-            fixedMenuPosition
-            label="Precipitation Type (Probability if supported by the weather entity)"
-            .configValue=${'forecast.precipitation_type'}
-            .value=${forecastConfig.precipitation_type}
-            @change=${(e) => this._valueChanged(e, 'forecast.precipitation_type')}
-            @closed=${(ev) => ev.stopPropagation()}
-          >
-            <ha-list-item .value=${'rainfall'}>Rainfall</ha-list-item>
-            <ha-list-item .value=${'probability'}>Probability</ha-list-item>
-          </ha-select>
-         <div class="switch-container" ?hidden=${forecastConfig.precipitation_type !== 'rainfall'}>
-             <ha-switch
-               @change="${(e) => this._valueChanged(e, 'forecast.show_probability')}"
-               .checked="${forecastConfig.show_probability !== false}"
-             ></ha-switch>
-             <label class="switch-label">
-               Show precipitation probability
-             </label>
-         </div>
-          <div class="textfield-container">
-            <div class="flex-container">
-              <ha-textfield
-                label="Precipitation Bar Size %"
-                type="number"
-                max="100"
-                min="0"
-                .value="${forecastConfig.precip_bar_size || '100'}"
-                @change="${(e) => this._valueChanged(e, 'forecast.precip_bar_size')}"
-              ></ha-textfield>
-              <ha-textfield
-                label="Labels Font Size"
-                type="number"
-                .value="${forecastConfig.labels_font_size || '11'}"
-                @change="${(e) => this._valueChanged(e, 'forecast.labels_font_size')}"
-              ></ha-textfield>
-              </div>
-	    <div class="flex-container">
-              <ha-textfield
-                label="Chart height"
-                type="number"
-                .value="${forecastConfig.chart_height || '180'}"
-                @change="${(e) => this._valueChanged(e, 'forecast.chart_height')}"
-              ></ha-textfield>
-              <ha-textfield
-                label="Number of forecasts"
-                type="number"
-                .value="${forecastConfig.number_of_forecasts || '0'}"
-                @change="${(e) => this._valueChanged(e, 'forecast.number_of_forecasts')}"
-              ></ha-textfield>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Units Page -->
-        <div class="page-container ${this.currentPage === 'units' ? 'active' : ''}">
-          <div class="textfield-container">
-            <ha-select
-              naturalMenuWidth
-              fixedMenuPosition
-              label="Convert pressure to"
-              .configValue=${'units.pressure'}
-              .value=${unitsConfig.pressure}
-              @change=${(e) => this._valueChanged(e, 'units.pressure')}
-              @closed=${(ev) => ev.stopPropagation()}
-            >
-              <ha-list-item .value=${'hPa'}>hPa</ha-list-item>
-              <ha-list-item .value=${'mmHg'}>mmHg</ha-list-item>
-              <ha-list-item .value=${'inHg'}>inHg</ha-list-item>
-            </ha-select>
-            <ha-select
-              label="Wind speed unit (all wind values)"
-              .value=${unitsConfig.speed === 'Beaufort' ? 'Bft' : unitsConfig.speed || 'auto'}
-              .options=${[
-                { value: 'auto', label: 'Weather entity (automatic)' },
-                ...WIND_SPEED_UNITS.filter(unit => unit !== 'Beaufort').map(unit => ({ value: unit, label: unit === 'Bft' ? 'Beaufort' : unit })),
-              ]}
-              @selected=${e => this.configChanged({ ...this._config, units: { ...this._config.units, speed: e.detail.value === 'auto' ? '' : e.detail.value } })}
-            ></ha-select>
-          </div>
-        </div>
-
-        <div class="page-container ${this.currentPage === 'layout' ? 'active' : ''}">
-          <p>Unit placement and spacing apply to this card. Choose the shared wind unit under Units.</p>
+      <div class="page ${this.currentPage === 'sizes' ? 'active' : ''}">
+        <p>Signed CSS-pixel adjustments: 0 keeps the baseline, +2 adds 2 px, -2 subtracts 2 px. Final sizes have a 1 px floor. Existing absolute size settings remain the baseline.</p>
+        ${SIZE_GROUPS.map(group => x`<details><summary>${group.title}</summary>
           <ha-form
-            data-detail-layout
+            data-size-group=${group.title}
             .hass=${this.hass}
-            .data=${{
-              wind_unit_position: forecastConfig.wind_unit_position || 'inline',
-              precipitation_unit_position: forecastConfig.precipitation_unit_position || 'inline',
-              precipitation_border: forecastConfig.precipitation_border !== false,
-              labels_bold: forecastConfig.labels_bold === true,
-              weekday_format: forecastConfig.weekday_format || 'short',
-              padding_scale: this._config.padding_scale === undefined ? 0.7 : Number(this._config.padding_scale),
-            }}
-            .schema=${LAYOUT_SCHEMA}
+            .data=${Object.fromEntries(group.fields.map(field => [field.key, (this._config.size_offsets || {})[field.key] || 0]))}
+            .schema=${group.fields.map(field => ({ name: field.key, label: `${field.label} (+/- px)`, selector: { number: { mode: 'box', step: 1 } } }))}
             .computeLabel=${schema => schema.label}
-            @value-changed=${this._layoutChanged}
+            @value-changed=${this._sizeOffsetsChanged}
           ></ha-form>
-        </div>
-
-        <!-- Signed pixel offsets; the schema also validates the YAML names. -->
-        <div class="page-container ${this.currentPage === 'sizes' ? 'active' : ''}">
-          <p>Signed pixel adjustments: 0 keeps the existing size, +2 adds 2 px, -2 removes 2 px. Sizes cannot fall below 1 px.</p>
-          ${SIZE_GROUPS.map(group => x`
-            <details>
-              <summary>${group.title}</summary>
-              <ha-form
-                data-size-group=${group.title}
-                .hass=${this.hass}
-                .data=${Object.fromEntries(group.fields.map(field => [field.key, (this._config.size_offsets || {})[field.key] || 0]))}
-                .schema=${group.fields.map(field => ({ name: field.key, label: `${field.label} (+/- px)`, selector: { number: { mode: 'box', step: 1 } } }))}
-                .computeLabel=${schema => schema.label}
-                @value-changed=${this._sizeOffsetsChanged}
-              ></ha-form>
-            </details>
-          `)}
-        </div>
-
-        <!-- Alternate Page -->
-        <div class="page-container ${this.currentPage === 'alternate' ? 'active' : ''}">
-          <h5>Alternative sensors for the main card attributes:</h5>
-          <ha-form
-            .data=${this._config}
-            .schema=${ALT_SCHEMA}
-            .hass=${this.hass}
-            @value-changed=${this._formValueChanged}
-          ></ha-form>
-        </div>
+        </details>`)}
+      </div>
+      <div class="page ${this.currentPage === 'alternate' ? 'active' : ''}">
+        <p>Clear a sensor to use weather-entity data. Unavailable configured sensors do not silently substitute a different reading. Supply numeric sensor states with unit metadata.</p>
+        ${this._form(ALTERNATE_FIELDS, 'alternate')}
+      </div>
     `;
   }
 }
-customElements.define("weather-chart-card-editor", WeatherChartCardEditor);
+customElements.define('weather-chart-card-editor', WeatherChartCardEditor);
 
 /**
  * @license
@@ -18229,6 +17606,7 @@ static getStubConfig(hass, unusedEntities, allEntities) {
     show_current_condition: true,
     show_attributes: true,
     attributes_position: 'row',
+    use_12hour_format: false,
     show_time: false,
     show_time_seconds: false,
     show_day: false,
@@ -18297,6 +17675,7 @@ setConfig(config) {
     show_last_changed: false,
     show_description: false,
     attributes_position: 'row',
+    use_12hour_format: false,
     ...config,
     padding_scale: config.padding_scale === undefined ? 0.7 : Number(config.padding_scale),
     forecast: {
@@ -18351,10 +17730,14 @@ setConfig(config) {
   if (cardConfig.units.speed && !WIND_SPEED_UNITS.includes(cardConfig.units.speed)) {
     throw new Error(`Unsupported wind-speed unit: ${cardConfig.units.speed}`);
   }
+  if (cardConfig.units.pressure && !PRESSURE_UNITS.includes(cardConfig.units.pressure)) throw new Error(`Unsupported pressure unit: ${cardConfig.units.pressure}`);
+  if (cardConfig.units.visibility && !['km', 'mi'].includes(cardConfig.units.visibility)) throw new Error('units.visibility must be km or mi');
+  if (cardConfig.locale) {
+    try { Intl.getCanonicalLocales(cardConfig.locale); }
+    catch (error) { throw new Error(`Invalid locale: ${cardConfig.locale}`); }
+  }
 
-  this.baseIconPath = cardConfig.icon_style === 'style2' ?
-    'https://cdn.jsdelivr.net/gh/mlamberts78/weather-chart-card/dist/icons2/':
-    'https://cdn.jsdelivr.net/gh/mlamberts78/weather-chart-card/dist/icons/' ;
+  this.baseIconPath = new URL(cardConfig.icon_style === 'style2' ? './icons2/' : './icons/', import.meta.url).href;
 
   this.config = cardConfig;
   if (!config.entity) {
@@ -18370,55 +17753,92 @@ set hass(hass) {
   this.weather = this.config.entity in hass.states ? hass.states[this.config.entity] : null;
   this.unitSpeed = this.config.units.speed ? this.config.units.speed : this.weather && this.weather.attributes.wind_speed_unit;
   this.unitPressure = this.config.units.pressure ? this.config.units.pressure : this.weather && this.weather.attributes.pressure_unit;
-  this.unitVisibility = this.config.units.visibility ? this.config.units.visibility : this.weather && this.weather.attributes.visibility_unit;
+  this.unitVisibility = this.config.units.visibility || (this.weather && this.weather.attributes.visibility_unit) || hass.config.unit_system.length;
 
 
   if (this.weather) {
-    this.temperature = this.config.temp ? hass.states[this.config.temp].state : this.weather.attributes.temperature;
-    this.humidity = this.config.humid ? hass.states[this.config.humid].state : this.weather.attributes.humidity;
-    this.pressure = this.config.press ? hass.states[this.config.press].state : this.weather.attributes.pressure;
-    this.uv_index = this.config.uv ? hass.states[this.config.uv].state : this.weather.attributes.uv_index;
-    this.windSpeed = this.config.windspeed ? hass.states[this.config.windspeed].state : this.weather.attributes.wind_speed;
-    this.dew_point = this.config.dew_point ? hass.states[this.config.dew_point].state : this.weather.attributes.dew_point;
-    this.wind_gust_speed = this.config.wind_gust_speed ? hass.states[this.config.wind_gust_speed].state : this.weather.attributes.wind_gust_speed;
-    this.visibility = this.config.visibility ? hass.states[this.config.visibility].state : this.weather.attributes.visibility;
+    const temperatureUnit = this.getUnit('temperature');
+    this.temperature = convertTemperature(this.sensorValue(this.config.temp, this.weather.attributes.temperature), this.sensorUnit(this.config.temp, temperatureUnit), temperatureUnit);
+    this.humidity = number$1(this.sensorValue(this.config.humid, this.weather.attributes.humidity));
+    this.pressure = this.sensorValue(this.config.press, this.weather.attributes.pressure);
+    this.uv_index = number$1(this.sensorValue(this.config.uv, this.weather.attributes.uv_index));
+    this.windSpeed = this.sensorValue(this.config.windspeed, this.weather.attributes.wind_speed);
+    this.dew_point = convertTemperature(this.sensorValue(this.config.dew_point, this.weather.attributes.dew_point), this.sensorUnit(this.config.dew_point, temperatureUnit), temperatureUnit);
+    this.wind_gust_speed = this.sensorValue(this.config.wind_gust_speed, this.weather.attributes.wind_gust_speed);
+    const visibilitySource = this.weather.attributes.visibility_unit || hass.config.unit_system.length;
+    this.visibility = convertVisibility(this.sensorValue(this.config.visibility, this.weather.attributes.visibility), this.sensorUnit(this.config.visibility, visibilitySource), this.unitVisibility);
 
-    if (this.config.winddir && hass.states[this.config.winddir] && hass.states[this.config.winddir].state !== undefined) {
-      this.windDirection = parseFloat(hass.states[this.config.winddir].state);
-    } else {
-      this.windDirection = this.weather.attributes.wind_bearing;
-    }
+    this.windDirection = this.config.winddir ? number$1(this.sensorValue(this.config.winddir)) : this.weather.attributes.wind_bearing;
 
-    this.feels_like = this.config.feels_like && hass.states[this.config.feels_like] ? hass.states[this.config.feels_like].state : this.weather.attributes.apparent_temperature;
-    this.description = this.config.description && hass.states[this.config.description] ? hass.states[this.config.description].state : this.weather.attributes.description;
+    this.feels_like = convertTemperature(this.sensorValue(this.config.feels_like, this.weather.attributes.apparent_temperature), this.sensorUnit(this.config.feels_like, temperatureUnit), temperatureUnit);
+    this.description = this.sensorValue(this.config.description, this.weather.attributes.description);
   }
 
-  if (this.weather && !this.forecastSubscriber) {
-    this.subscribeForecastEvents();
-  }
+  if (this.isConnected) this.subscribeForecastEvents();
 }
 
 subscribeForecastEvents() {
-  const forecastType = this.config.forecast.type || 'daily';
-  const isHourly = forecastType === 'hourly';
-
-  const feature = isHourly ? WeatherEntityFeature.FORECAST_HOURLY : WeatherEntityFeature.FORECAST_DAILY;
-  if (!this.supportsFeature(feature)) {
-    console.error(`Weather entity "${this.config.entity}" does not support ${isHourly ? 'hourly' : 'daily'} forecasts.`);
+  if (!this.isConnected || !this._hass || !this.config) return;
+  if (!this.weather) {
+    this.stopForecastSubscription();
     return;
   }
-
+  const forecastType = this.config.forecast.type || 'daily';
+  const isHourly = forecastType === 'hourly';
+  const feature = isHourly ? WeatherEntityFeature.FORECAST_HOURLY : WeatherEntityFeature.FORECAST_DAILY;
+  const supported = this.supportsFeature(feature);
+  const key = `${this.config.entity}:${forecastType}`;
+  const connection = this._hass.connection;
+  if (this._forecastKey === key && this._forecastConnection === connection &&
+      ((supported && this.forecastSubscriber) || (!supported && this._forecastUnsupported))) return;
+  this.stopForecastSubscription();
+  this._forecastKey = key;
+  this._forecastConnection = connection;
+  if (!supported) {
+    this._forecastUnsupported = true;
+    console.warn(`Weather entity "${this.config.entity}" does not support ${forecastType} forecasts.`);
+    return;
+  }
+  const generation = this._forecastGeneration;
   const callback = (event) => {
-    this.forecasts = event.forecast;
+    if (!this.isConnected || generation !== this._forecastGeneration) return;
+    this.forecasts = Array.isArray(event.forecast) ? event.forecast : [];
     this.requestUpdate();
-    this.drawChart();
+    this.updateComplete.then(() => {
+      if (this.isConnected && generation === this._forecastGeneration) this.measureCard();
+    }).catch(error => console.error('Weather Chart Card: forecast render failed', error));
   };
+  try {
+    this.forecastSubscriber = Promise.resolve(connection.subscribeMessage(callback, {
+      type: 'weather/subscribe_forecast', forecast_type: forecastType, entity_id: this.config.entity,
+    }));
+    this.forecastSubscriber.catch(error => {
+      if (generation === this._forecastGeneration) {
+        this.forecastSubscriber = null;
+        this._forecastKey = null;
+        console.error('Weather Chart Card: forecast subscription failed', error);
+      }
+    });
+  } catch (error) {
+    this.forecastSubscriber = null;
+    this._forecastKey = null;
+    console.error('Weather Chart Card: forecast subscription failed', error);
+  }
+}
 
-  this.forecastSubscriber = this._hass.connection.subscribeMessage(callback, {
-    type: "weather/subscribe_forecast",
-    forecast_type: isHourly ? 'hourly' : 'daily',
-    entity_id: this.config.entity,
-  });
+stopForecastSubscription() {
+  this._forecastGeneration += 1;
+  const subscription = this.forecastSubscriber;
+  this.forecastSubscriber = null;
+  this._forecastKey = null;
+  this._forecastConnection = null;
+  this._forecastUnsupported = false;
+  if (subscription) Promise.resolve(subscription).then(unsubscribe => {
+    if (typeof unsubscribe === 'function') return unsubscribe();
+  }).catch(error => console.warn('Weather Chart Card: forecast cleanup failed', error));
+  this.forecasts = [];
+  if (this.forecastChart) this.forecastChart.destroy();
+  this.forecastChart = null;
 }
 
   supportsFeature(feature) {
@@ -18428,39 +17848,51 @@ subscribeForecastEvents() {
   constructor() {
     super();
     this.resizeObserver = null;
-    this.resizeInitialized = false;
+    this.resizeTimeout = null;
+    this.clockInterval = null;
+    this.forecastSubscriber = null;
+    this.autoscrollTimeout = null;
+    this._forecastGeneration = 0;
+    this._forecastKey = null;
+    this._forecastConnection = null;
+    this._forecastUnsupported = false;
   }
 
   connectedCallback() {
     super.connectedCallback();
-    if (!this.resizeInitialized) {
-      this.delayedAttachResizeObserver();
-    }
+    this.delayedAttachResizeObserver();
+    if (this._hass && this.config) this.subscribeForecastEvents();
+    if (this.config && this.config.autoscroll) this.autoscroll();
+    this.requestUpdate();
   }
 
   delayedAttachResizeObserver() {
-    setTimeout(() => {
-      this.attachResizeObserver();
-      this.resizeInitialized = true;
+    if (this.resizeTimeout !== null) clearTimeout(this.resizeTimeout);
+    this.resizeTimeout = setTimeout(() => {
+      this.resizeTimeout = null;
+      if (this.isConnected) this.attachResizeObserver();
     }, 0);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    if (this.resizeTimeout !== null) clearTimeout(this.resizeTimeout);
+    this.resizeTimeout = null;
     this.detachResizeObserver();
-    if (this.forecastSubscriber) {
-      this.forecastSubscriber.then((unsub) => unsub());
-    }
+    this.stopForecastSubscription();
+    this.cancelAutoscroll();
+    if (this.clockInterval !== null) clearInterval(this.clockInterval);
+    this.clockInterval = null;
   }
 
   attachResizeObserver() {
+    this.detachResizeObserver();
+    const card = this.shadowRoot && this.shadowRoot.querySelector('ha-card');
+    if (!card || !this.isConnected) return;
     this.resizeObserver = new ResizeObserver(() => {
       this.measureCard();
     });
-    const card = this.shadowRoot.querySelector('ha-card');
-    if (card) {
-      this.resizeObserver.observe(card);
-    }
+    this.resizeObserver.observe(card);
   }
 
   detachResizeObserver() {
@@ -18480,18 +17912,15 @@ measureCard() {
     return;
   }
 
-  this.forecastItems = numberOfForecasts > 0 ? numberOfForecasts : Math.round(card.offsetWidth / (fontSize * 6));
+  this.forecastItems = numberOfForecasts > 0 ? Math.floor(Number(numberOfForecasts)) : Math.max(1, Math.round(card.offsetWidth / (fontSize * 6)));
   this.drawChart();
 }
 
 ll(str) {
   const selectedLocale = this.config.locale || this.language || 'en';
 
-  if (locale[selectedLocale] === undefined) {
-    return locale.en[str];
-  }
-
-  return locale[selectedLocale][str];
+  const dictionary = locale[selectedLocale] || locale[selectedLocale.split('-')[0]] || locale.en;
+  return dictionary[str] === undefined ? locale.en[str] : dictionary[str];
 }
 
   getCardSize() {
@@ -18499,10 +17928,12 @@ ll(str) {
   }
 
   getUnit(unit) {
+    if (unit === 'temperature' && this.weather && this.weather.attributes.temperature_unit) return this.weather.attributes.temperature_unit;
     return this._hass.config.unit_system[unit] || '';
   }
 
   getWeatherIcon(condition, sun) {
+    if (!weatherIconsDay[condition]) return 'mdi:help-circle-outline';
     if (this.config.animated_icons === true) {
       const iconName = sun === 'below_horizon' ? weatherIconsNight[condition] : weatherIconsDay[condition];
       return `${this.baseIconPath}${iconName}.svg`;
@@ -18571,6 +18002,8 @@ getWindDir(deg) {
 
 async firstUpdated(changedProperties) {
   super.firstUpdated(changedProperties);
+  if (!this.config || !this.isConnected) return;
+  this.attachResizeObserver();
   this.measureCard();
   await new Promise(resolve => setTimeout(resolve, 0));
   this.drawChart();
@@ -18583,41 +18016,24 @@ async firstUpdated(changedProperties) {
 
 async updated(changedProperties) {
   await this.updateComplete;
+  if (!this.isConnected || !this.config) return;
 
   if (changedProperties.has('config')) {
-    const oldConfig = changedProperties.get('config');
-
-    const entityChanged = oldConfig && this.config.entity !== oldConfig.entity;
-    const forecastTypeChanged = oldConfig && this.config.forecast.type !== oldConfig.forecast.type;
-    const autoscrollChanged = oldConfig && this.config.autoscroll !== oldConfig.autoscroll;
-
-    if (entityChanged || forecastTypeChanged) {
-      if (this.forecastSubscriber && typeof this.forecastSubscriber === 'function') {
-        this.forecastSubscriber();
-      }
-
-      this.subscribeForecastEvents();
-    }
-
-    if (this.forecasts && this.forecasts.length) {
-      this.drawChart();
-    }
-
-    if (autoscrollChanged) {
-      if (!this.config.autoscroll) {
-        this.autoscroll();
-      } else {
-        this.cancelAutoscroll();
-      }
-    }
+    this.subscribeForecastEvents();
+    this.measureCard();
   }
 
   if (changedProperties.has('weather')) {
     this.updateChart();
   }
+  if (!this.resizeObserver) this.attachResizeObserver();
+  this.syncClock();
+  if (this.config.autoscroll && this.weather) this.autoscroll();
+  else this.cancelAutoscroll();
 }
 
 autoscroll() {
+  if (!this.isConnected || !this.config || !this.config.autoscroll || !this.weather) return;
   if (this.autoscrollTimeout) {
     // Autscroll already set, nothing to do
     return;
@@ -18633,8 +18049,10 @@ autoscroll() {
     );
     this.autoscrollTimeout = setTimeout(() => {
       this.autoscrollTimeout = null;
+      if (!this.isConnected || !this.config.autoscroll) return;
       this.updateChart();
-      drawChartOncePerHour();
+      this.requestUpdate();
+      updateChartOncePerHour();
     }, nextHour - now);
   };
 
@@ -18645,6 +18063,7 @@ cancelAutoscroll() {
   if (this.autoscrollTimeout) {
     clearTimeout(this.autoscrollTimeout);
   }
+  this.autoscrollTimeout = null;
 }
 
 drawChart({ config, language, weather, forecastItems } = this) {
@@ -18661,7 +18080,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
   if (this.forecastChart) {
     this.forecastChart.destroy();
   }
-  var tempUnit = this._hass.config.unit_system.temperature;
+  var tempUnit = this.getUnit('temperature');
   var lengthUnit = this._hass.config.unit_system.length;
   if (config.forecast.precipitation_type === 'probability') {
     var precipUnit = '%';
@@ -18947,8 +18366,18 @@ drawChart({ config, language, weather, forecastItems } = this) {
   });
 }
 
-computeForecastData({ config, forecastItems } = this) {
-  var forecast = this.forecasts ? this.forecasts.slice(0, forecastItems) : [];
+selectedForecasts() {
+  let forecast = Array.isArray(this.forecasts) ? this.forecasts : [];
+  if (this.config.autoscroll) {
+    const cutoff = (this.config.forecast.type === 'hourly' ? 1 : 24) * 60 * 60 * 1000;
+    const now = Date.now();
+    forecast = forecast.filter(item => Number.isFinite(Date.parse(item.datetime)) && now - Date.parse(item.datetime) <= cutoff);
+  }
+  return forecast.slice(0, Math.max(0, Number(this.forecastItems) || 0));
+}
+
+computeForecastData({ config } = this) {
+  var forecast = this.selectedForecasts();
   var roundTemp = config.forecast.round_temp == true;
   var dateTime = [];
   var tempHigh = [];
@@ -18957,12 +18386,7 @@ computeForecastData({ config, forecastItems } = this) {
 
   for (var i = 0; i < forecast.length; i++) {
     var d = forecast[i];
-    if (config.autoscroll) {
-      const cutoff = (config.forecast.type === 'hourly' ? 1 : 24) * 60 * 60 * 1000;
-      if (new Date() - new Date(d.datetime) > cutoff) {
-        continue;
-      }
-    }
+
     dateTime.push(d.datetime);
     tempHigh.push(d.temperature);
     if (typeof d.templow !== 'undefined') {
@@ -19012,8 +18436,17 @@ updateChart({ forecasts, forecastChart } = this) {
   }
 
   windSourceUnit(entity) {
+    return this.sensorUnit(entity, this.weather.attributes.wind_speed_unit);
+  }
+
+  sensorValue(entity, fallback) {
     const sensor = entity && this._hass.states[entity];
-    return (sensor && sensor.attributes.unit_of_measurement) || this.weather.attributes.wind_speed_unit;
+    return entity ? sensor && sensor.state : fallback;
+  }
+
+  sensorUnit(entity, fallback) {
+    const sensor = entity && this._hass.states[entity];
+    return (sensor && sensor.attributes.unit_of_measurement) || fallback;
   }
 
   windUnit() {
@@ -19287,11 +18720,37 @@ updateChart({ forecasts, forecastChart } = this) {
     `;
   }
 
+syncClock() {
+  const enabled = this.isConnected && this.config && this.config.show_main !== false &&
+    this.config.show_time && this.shadowRoot.querySelector('#digital-clock');
+  if (!enabled) {
+    if (this.clockInterval !== null) clearInterval(this.clockInterval);
+    this.clockInterval = null;
+    return;
+  }
+  this.updateClock();
+  if (this.clockInterval === null) this.clockInterval = setInterval(() => this.updateClock(), 1000);
+}
+
+updateClock() {
+  const header = this.shadowRoot && this.shadowRoot.querySelector('.header');
+  if (!header || !this.config) return;
+  const date = new Date();
+  const clock = header.querySelector('#digital-clock');
+  if (clock) clock.textContent = date.toLocaleTimeString(this.language, {
+    hour12: this.config.use_12hour_format, hour: 'numeric', minute: 'numeric',
+    second: this.config.show_time_seconds === true ? 'numeric' : undefined,
+  });
+  const day = header.querySelector('.date-text.day');
+  if (day) day.textContent = date.toLocaleString(this.language, { weekday: 'long' }).toUpperCase();
+  const dateElement = header.querySelector('.date-text.date');
+  if (dateElement) dateElement.textContent = date.toLocaleDateString(this.language, { month: 'long', day: 'numeric' });
+}
+
 renderMain({ config, sun, weather, temperature, feels_like, description } = this) {
   if (config.show_main === false)
     return x``;
 
-  const use12HourFormat = config.use_12hour_format;
   const showTime = config.show_time;
   const showDay = config.show_day;
   const showDate = config.show_date;
@@ -19299,7 +18758,7 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
   const showDescription = config.show_description;
   const showCurrentCondition = config.show_current_condition !== false;
   const showTemperature = config.show_temperature !== false;
-  const showSeconds = config.show_time_seconds === true;
+
 
   let roundedTemperature = parseFloat(temperature);
   if (!isNaN(roundedTemperature) && roundedTemperature % 1 !== 0) {
@@ -19311,48 +18770,9 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
     roundedFeelsLike = Math.round(roundedFeelsLike * 10) / 10;
   }
 
-  const iconHtml = config.animated_icons || config.icons
-    ? x`<img data-size="current_icon" src="${this.getWeatherIcon(weather.state, sun.state)}" alt="">`
-    : x`<ha-icon data-size="current_icon" icon="${this.getWeatherIcon(weather.state, sun.state)}"></ha-icon>`;
-
-  const updateClock = () => {
-    const currentDate = new Date();
-    const timeOptions = {
-      hour12: use12HourFormat,
-      hour: 'numeric',
-      minute: 'numeric',
-      second: showSeconds ? 'numeric' : undefined
-    };
-    const currentTime = currentDate.toLocaleTimeString(this.language, timeOptions);
-    const currentDayOfWeek = currentDate.toLocaleString(this.language, { weekday: 'long' }).toUpperCase();
-    const currentDateFormatted = currentDate.toLocaleDateString(this.language, { month: 'long', day: 'numeric' });
-
-    const mainDiv = this.shadowRoot.querySelector('.header');
-    if (mainDiv) {
-      const clockElement = mainDiv.querySelector('#digital-clock');
-      if (clockElement) {
-        clockElement.textContent = currentTime;
-      }
-      if (showDay) {
-        const dayElement = mainDiv.querySelector('.date-text.day');
-        if (dayElement) {
-          dayElement.textContent = currentDayOfWeek;
-        }
-      }
-      if (showDate) {
-        const dateElement = mainDiv.querySelector('.date-text.date');
-        if (dateElement) {
-          dateElement.textContent = currentDateFormatted;
-        }
-      }
-    }
-  };
-
-  updateClock();
-
-  if (showTime) {
-    setInterval(updateClock, 1000);
-  }
+  const iconHtml = (config.animated_icons || config.icons) && weatherIconsDay[weather.state]
+    ? x`<img data-size="current_icon" src="${this.getWeatherIcon(weather.state, sun && sun.state)}" alt="">`
+    : x`<ha-icon data-size="current_icon" icon="${this.getWeatherIcon(weather.state, sun && sun.state)}"></ha-icon>`;
 
   const clockHtml = showTime ? x`
     <div class="current-time">
@@ -19369,8 +18789,8 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
       ${iconHtml}
       <div>
         <div>
-          ${showTemperature ? x`${this.sizedText('current_temperature', roundedTemperature, config.current_temp_size)}${this.sizedText('current_temperature_unit', this.getUnit('temperature'), 18)}` : ''}
-          ${showFeelsLike && roundedFeelsLike ? x`
+          ${showTemperature ? x`${this.sizedText('current_temperature', Number.isFinite(roundedTemperature) ? roundedTemperature : '—', config.current_temp_size)}${this.sizedText('current_temperature_unit', this.getUnit('temperature'), 18)}` : ''}
+          ${showFeelsLike && Number.isFinite(roundedFeelsLike) ? x`
             <div class="feels-like">
               ${this.sizedText('feels_like_label', this.ll('feelsLike'), 13)}
               ${this.sizedText('feels_like_value', roundedFeelsLike, 13)}${this.sizedText('feels_like_unit', this.getUnit('temperature'), 13)}
@@ -19378,7 +18798,7 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
           ` : ''}
           ${showCurrentCondition ? x`
             <div class="current-condition">
-              ${this.sizedText('current_condition', this.ll(weather.state), 18)}
+              ${this.sizedText('current_condition', this.ll(weather.state) || weather.state, 18)}
             </div>
           ` : ''}
           ${showDescription ? x`
@@ -19399,34 +18819,8 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
 renderAttributes({ config, humidity, pressure, windSpeed, windDirection, sun, language, uv_index, dew_point, wind_gust_speed, visibility } = this) {
   const dWindSpeed = convertWindSpeed(windSpeed, this.windSourceUnit(config.windspeed), this.unitSpeed);
   const dWindGust = convertWindSpeed(wind_gust_speed, this.windSourceUnit(config.wind_gust_speed), this.unitSpeed);
-  let dPressure = pressure;
-
-  if (this.unitPressure !== this.weather.attributes.pressure_unit) {
-    if (this.unitPressure === 'mmHg') {
-      if (this.weather.attributes.pressure_unit === 'hPa') {
-        dPressure = Math.round(pressure * 0.75006);
-      } else if (this.weather.attributes.pressure_unit === 'inHg') {
-        dPressure = Math.round(pressure * 25.4);
-      }
-    } else if (this.unitPressure === 'hPa') {
-      if (this.weather.attributes.pressure_unit === 'mmHg') {
-        dPressure = Math.round(pressure / 0.75006);
-      } else if (this.weather.attributes.pressure_unit === 'inHg') {
-        dPressure = Math.round(pressure * 33.8639);
-      }
-    } else if (this.unitPressure === 'inHg') {
-      if (this.weather.attributes.pressure_unit === 'mmHg') {
-        dPressure = pressure / 25.4;
-      } else if (this.weather.attributes.pressure_unit === 'hPa') {
-        dPressure = pressure / 33.8639;
-      }
-      dPressure = dPressure.toFixed(2);
-    }
-  } else {
-    if (this.unitPressure === 'hPa' || this.unitPressure === 'mmHg') {
-      dPressure = Math.round(dPressure);
-    }
-  }
+  const pressureSource = this.weather.attributes.pressure_unit || this._hass.config.unit_system.pressure;
+  const dPressure = convertPressure(pressure, this.sensorUnit(config.press, pressureSource), this.unitPressure);
 
   if (config.show_attributes == false)
     return x``;
@@ -19448,13 +18842,13 @@ return x`
             ${this.sizedIcon('humidity_icon', 'hass:water-percent')} ${this.sizedText('humidity_value', humidity)} ${this.sizedText('humidity_unit', '%')}<br>
           ` : ''}
           ${showPressure && dPressure !== undefined ? x`
-            ${this.sizedIcon('pressure_icon', 'hass:gauge')} ${this.sizedText('pressure_value', dPressure)} ${this.sizedText('pressure_unit', this.ll('units')[this.unitPressure])} <br>
+            ${this.sizedIcon('pressure_icon', 'hass:gauge')} ${this.sizedText('pressure_value', dPressure)} ${this.sizedText('pressure_unit', this.ll('units')[this.unitPressure] || this.unitPressure)} <br>
           ` : ''}
           ${showDewpoint && dew_point !== undefined ? x`
-            ${this.sizedIcon('dew_point_icon', 'hass:thermometer-water')} ${this.sizedText('dew_point_value', dew_point)} ${this.sizedText('dew_point_unit', this.weather.attributes.temperature_unit)} <br>
+            ${this.sizedIcon('dew_point_icon', 'hass:thermometer-water')} ${this.sizedText('dew_point_value', dew_point)} ${this.sizedText('dew_point_unit', this.getUnit('temperature'))} <br>
           ` : ''}
           ${showVisibility && visibility !== undefined ? x`
-            ${this.sizedIcon('visibility_icon', 'hass:eye')} ${this.sizedText('visibility_value', visibility)} ${this.sizedText('visibility_unit', this.weather.attributes.visibility_unit)}
+            ${this.sizedIcon('visibility_icon', 'hass:eye')} ${this.sizedText('visibility_value', visibility)} ${this.sizedText('visibility_unit', this.unitVisibility)}
           ` : ''}
         </div>
       ` : ''}
@@ -19511,8 +18905,8 @@ const timeOptions = {
   `;
 }
 
-renderForecastConditionIcons({ config, forecastItems, sun } = this) {
-  const forecast = this.forecasts ? this.forecasts.slice(0, forecastItems) : [];
+renderForecastConditionIcons({ config, sun } = this) {
+  const forecast = this.selectedForecasts();
 
   if (config.forecast.condition_icons === false) {
     return x``;
@@ -19522,27 +18916,15 @@ renderForecastConditionIcons({ config, forecastItems, sun } = this) {
     <div class="conditions" @click="${(e) => this.showMoreInfo(config.entity)}">
       ${forecast.map((item) => {
         const forecastTime = new Date(item.datetime);
-        const sunriseTime = new Date(sun.attributes.next_rising);
-        const sunsetTime = new Date(sun.attributes.next_setting);
-
-        // Adjust sunrise and sunset times to match the date of forecastTime
-        const adjustedSunriseTime = new Date(forecastTime);
-        adjustedSunriseTime.setHours(sunriseTime.getHours());
-        adjustedSunriseTime.setMinutes(sunriseTime.getMinutes());
-        adjustedSunriseTime.setSeconds(sunriseTime.getSeconds());
-
-        const adjustedSunsetTime = new Date(forecastTime);
-        adjustedSunsetTime.setHours(sunsetTime.getHours());
-        adjustedSunsetTime.setMinutes(sunsetTime.getMinutes());
-        adjustedSunsetTime.setSeconds(sunsetTime.getSeconds());
-
-        let isDayTime;
-
-        if (config.forecast.type === 'daily') {
-          // For daily forecast, assume it's day time
-          isDayTime = true;
-        } else {
-          // For other forecast types, determine based on sunrise and sunset times
+        const sunriseTime = sun && sun.attributes.next_rising ? new Date(sun.attributes.next_rising) : null;
+        const sunsetTime = sun && sun.attributes.next_setting ? new Date(sun.attributes.next_setting) : null;
+        let isDayTime = item.condition !== 'clear-night';
+        if (config.forecast.type !== 'daily' && sunriseTime && sunsetTime &&
+            Number.isFinite(sunriseTime.getTime()) && Number.isFinite(sunsetTime.getTime())) {
+          const adjustedSunriseTime = new Date(forecastTime);
+          adjustedSunriseTime.setHours(sunriseTime.getHours(), sunriseTime.getMinutes(), sunriseTime.getSeconds());
+          const adjustedSunsetTime = new Date(forecastTime);
+          adjustedSunsetTime.setHours(sunsetTime.getHours(), sunsetTime.getMinutes(), sunsetTime.getSeconds());
           isDayTime = forecastTime >= adjustedSunriseTime && forecastTime <= adjustedSunsetTime;
         }
 
@@ -19551,13 +18933,13 @@ renderForecastConditionIcons({ config, forecastItems, sun } = this) {
 
         let iconHtml;
 
-        if (config.animated_icons || config.icons) {
+        if ((config.animated_icons || config.icons) && weatherIcons[condition]) {
           const iconSrc = config.animated_icons ?
             `${this.baseIconPath}${weatherIcons[condition]}.svg` :
             `${this.config.icons}${weatherIcons[condition]}.svg`;
           iconHtml = x`<img class="icon" data-size="forecast_condition_icon" src="${iconSrc}" alt="">`;
         } else {
-          iconHtml = x`<ha-icon data-size="forecast_condition_icon" icon="${this.getWeatherIcon(condition, sun.state)}"></ha-icon>`;
+          iconHtml = x`<ha-icon data-size="forecast_condition_icon" icon="${this.getWeatherIcon(condition, sun && sun.state)}"></ha-icon>`;
         }
 
         return x`
@@ -19570,14 +18952,14 @@ renderForecastConditionIcons({ config, forecastItems, sun } = this) {
   `;
 }
 
-renderWind({ config, forecastItems } = this) {
+renderWind({ config } = this) {
   const showWindForecast = config.forecast.show_wind_forecast !== false;
 
   if (!showWindForecast) {
     return x``;
   }
 
-  const forecast = this.forecasts ? this.forecasts.slice(0, forecastItems) : [];
+  const forecast = this.selectedForecasts();
 
   return x`
     <div class="wind-details">
@@ -19656,5 +19038,5 @@ window.customCards.push({
   name: "Weather Chart Card",
   description: "A custom weather card with chart.",
   preview: true,
-  documentationURL: "https://github.com/mlamberts78/weather-chart-card",
+  documentationURL: "https://github.com/tomtom13/weather-chart-card",
 });

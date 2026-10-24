@@ -1,0 +1,94 @@
+{
+  "bundle_sha256": "116b6c47124da22735e53ff4552db9d3238caec37d2f842fcc53e3552c6904eb",
+  "results": [
+    {
+      "contract": "forecast type changes keep one live subscription",
+      "active_counts": [
+        1,
+        1,
+        1
+      ],
+      "passed": true
+    },
+    {
+      "contract": "clock does not accumulate timers and stops when hidden",
+      "baseline": 0,
+      "initial": 1,
+      "after_renders": 1,
+      "after_hide": 0,
+      "passed": true
+    },
+    {
+      "contract": "changing configured forecast count updates immediately",
+      "before": 3,
+      "after": 6,
+      "passed": true
+    },
+    {
+      "contract": "autoscroll filters before capping and keeps chart/icon/wind points aligned",
+      "measured": {
+        "chart": [
+          3,
+          4,
+          5
+        ],
+        "wind": [
+          3,
+          4,
+          5
+        ],
+        "icons": 3,
+        "timer": true
+      },
+      "passed": true
+    },
+    {
+      "contract": "scheduled hourly refresh reschedules without a runtime error",
+      "measured": {
+        "error": null
+      },
+      "passed": true
+    },
+    {
+      "contract": "autoscroll can restart after disable/enable",
+      "passed": true
+    },
+    {
+      "contract": "feels-like zero is visible",
+      "measured": "0",
+      "passed": true
+    },
+    {
+      "contract": "weather card renders without sun integration",
+      "measured": {
+        "error": null,
+        "canvas": true
+      },
+      "passed": true
+    },
+    {
+      "contract": "weather/alternate sensor units are not mislabelled",
+      "measured": {
+        "temperature": "50",
+        "unit": "\u00b0F",
+        "pressure": "1013",
+        "visibility": "1"
+      },
+      "passed": true
+    },
+    {
+      "contract": "native Main editor title control saves",
+      "passed": true
+    },
+    {
+      "contract": "native Forecast selector saves without dropping units",
+      "passed": true
+    },
+    {
+      "contract": "disconnect releases all weather subscriptions",
+      "active": 0,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

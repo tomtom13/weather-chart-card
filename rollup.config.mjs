@@ -6,7 +6,7 @@ const dev = process.env.ROLLUP_WATCH;
 
 const serveopts = {
   contentBase: ['./dist'],
-  host: '0.0.0.0',
+  host: '127.0.0.1',
   port: 5000,
   allowCrossOrigin: true,
   headers: {
@@ -18,7 +18,7 @@ export default {
   input: 'src/main.js',
   output: {
     file: 'dist/weather-chart-card.js',
-    format: 'cjs',
+    format: 'es',
     name: 'WeatherChartCard',
     sourcemap: dev ? true : false,
   },
