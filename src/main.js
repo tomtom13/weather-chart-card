@@ -670,6 +670,15 @@ drawChart({ config, language, weather, forecastItems } = this) {
       scales: {
         x: {
           position: 'top',
+          afterBuildTicks: axis => {
+            if (config.forecast.type !== 'hourly') return;
+            axis.ticks.forEach((tick, index) => {
+              const date = new Date(axis.getLabelForValue(tick.value));
+              const previous = index > 0 ? new Date(axis.getLabelForValue(axis.ticks[index - 1].value)) : null;
+              tick.major = !previous || index === axis.ticks.length - 1 || date.toDateString() !== previous.toDateString() ||
+                (config.use_12hour_format === true && (date.getHours() >= 12) !== (previous.getHours() >= 12));
+            });
+          },
           border: {
             width: 0,
           },
@@ -678,6 +687,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
             color: dividerColor,
           },
           ticks: {
+              major: { enabled: config.forecast.type === 'hourly' },
               maxRotation: 0,
               font: { size: this.size('forecast_labels', Chart.defaults.font.size), weight: config.forecast.labels_bold ? 'bold' : 'normal' },
               color: config.forecast.chart_datetime_color || textColor,

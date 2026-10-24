@@ -1,5 +1,5 @@
 {
-  "bundle_sha256": "4004826c10a2da89c9259a5a97cee5ab4dd0a5a97853f840950121978bb5e6d4",
+  "bundle_sha256": "83f8f469f6a9a1c88e37276114974e97a61afe62da7107cf3f5b31757a3febed",
   "results": [
     {
       "mode": "24h",
@@ -268,6 +268,40 @@
         42.8,
         42.8,
         42.8
+      ],
+      "passed": true
+    },
+    {
+      "contract": "AM/PM and date markers survive automatic tick skipping",
+      "labels": [
+        [
+          "PM",
+          "3"
+        ],
+        [
+          "",
+          "8"
+        ],
+        [
+          "Oct 25 \u00b7 AM",
+          "12"
+        ],
+        [
+          "",
+          "4"
+        ],
+        [
+          "",
+          "8"
+        ],
+        [
+          "PM",
+          "12"
+        ],
+        [
+          "",
+          "3"
+        ]
       ],
       "passed": true
     },
