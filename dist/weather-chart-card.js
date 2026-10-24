@@ -1,5 +1,3 @@
-'use strict';
-
 const locale = {
   cs: {
     'tempHi': 'Teplota',
@@ -785,6 +783,118 @@ const locale = {
   },
 };
 
+// One inventory shared by YAML validation and the visual configurator.
+const SIZE_GROUPS = [
+  ['Current conditions', [
+    ['title', 'Card title'],
+    ['current_icon', 'Current weather icon'],
+    ['current_temperature', 'Current temperature number'],
+    ['current_temperature_unit', 'Current temperature unit'],
+    ['current_condition', 'Current condition text'],
+    ['feels_like_label', 'Feels-like label'],
+    ['feels_like_value', 'Feels-like number'],
+    ['feels_like_unit', 'Feels-like unit'],
+    ['description', 'Weather description'],
+    ['current_time', 'Clock'],
+    ['current_day', 'Day of week'],
+    ['current_date', 'Date'],
+  ]],
+  ['Attributes', [
+    ['humidity_value', 'Humidity number'], ['humidity_unit', 'Humidity unit'], ['humidity_icon', 'Humidity icon'],
+    ['pressure_value', 'Pressure number'], ['pressure_unit', 'Pressure unit'], ['pressure_icon', 'Pressure icon'],
+    ['wind_direction_value', 'Wind direction text'], ['wind_direction_icon', 'Wind direction icon'],
+    ['wind_speed_value', 'Current wind-speed number'], ['wind_speed_unit', 'Current wind-speed unit'], ['wind_speed_icon', 'Current wind-speed icon'],
+    ['wind_gust_value', 'Wind-gust number'], ['wind_gust_unit', 'Wind-gust unit'], ['wind_gust_icon', 'Wind-gust icon'],
+    ['dew_point_value', 'Dew-point number'], ['dew_point_unit', 'Dew-point unit'], ['dew_point_icon', 'Dew-point icon'],
+    ['visibility_value', 'Visibility number'], ['visibility_unit', 'Visibility unit'], ['visibility_icon', 'Visibility icon'],
+    ['sunrise_time', 'Sunrise time'], ['sunrise_icon', 'Sunrise icon'],
+    ['sunset_time', 'Sunset time'], ['sunset_icon', 'Sunset icon'],
+    ['uv_label', 'UV label'], ['uv_value', 'UV number'], ['uv_icon', 'UV icon'],
+  ]],
+  ['Forecast', [
+    ['forecast_labels', 'Forecast day/hour labels'],
+    ['forecast_temperature_high', 'Forecast high-temperature labels'],
+    ['forecast_temperature_low', 'Forecast low-temperature labels'],
+    ['forecast_precipitation', 'Forecast precipitation labels'],
+    ['forecast_condition_icon', 'Forecast condition icons'],
+    ['forecast_wind_speed', 'Forecast wind-speed number'],
+    ['forecast_wind_unit', 'Forecast wind-speed unit'],
+    ['forecast_wind_icon', 'Forecast wind-direction icons'],
+    ['tooltip_title', 'Chart tooltip title'], ['tooltip_body', 'Chart tooltip values'],
+  ]],
+  ['Other text', [
+    ['updated_text', 'Last-updated text'], ['updated_number', 'Last-updated number'],
+    ['error_text', 'Missing-weather message'],
+  ]],
+].map(([title, fields]) => ({ title, fields: fields.map(([key, label]) => ({ key, label })) }));
+
+const SIZE_KEYS = new Set(SIZE_GROUPS.flatMap(group => group.fields.map(field => field.key)));
+
+function normaliseSizeOffsets(value) {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('size_offsets must be a mapping of size names to signed pixel offsets');
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, offset]) => {
+    if (!SIZE_KEYS.has(key)) throw new Error(`Unknown size_offsets item: ${key}`);
+    if (!['number', 'string'].includes(typeof offset) || String(offset).trim() === '' || !Number.isFinite(Number(offset))) {
+      throw new Error(`size_offsets.${key} must be a finite signed number`);
+    }
+    return [key, Number(offset)];
+  }));
+}
+
+// Weather/forecast values use the weather entity's reported unit; alternate
+// sensors can supply their own unit_of_measurement. Convert before labelling.
+const WIND_SPEED_UNITS = ['m/s', 'km/h', 'mph', 'kn', 'ft/s', 'Bft', 'Beaufort'];
+const METRES_PER_SECOND = { 'm/s': 1, 'km/h': 1 / 3.6, mph: 0.44704, kn: 1852 / 3600, 'ft/s': 0.3048 };
+const beaufort = unit => unit === 'Bft' || unit === 'Beaufort';
+
+function convertWindSpeed(value, from, to) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const speed = Number(value);
+  if (!Number.isFinite(speed) || speed < 0) return undefined;
+  if (from === to || (beaufort(from) && beaufort(to))) return Math.round(speed);
+  // Same Beaufort formulas as Home Assistant's SpeedConverter.
+  const metres = beaufort(from) ? 0.836 * Math.pow(speed, 1.5) : speed * METRES_PER_SECOND[from];
+  if (!Number.isFinite(metres)) return undefined;
+  if (beaufort(to)) return Math.round(Math.pow(metres / 0.836, 2 / 3));
+  const converted = metres / METRES_PER_SECOND[to];
+  return Number.isFinite(converted) ? Math.round(converted) : undefined;
+}
+
+// Weather values have already been converted by HASS into the entity's reported
+// units. Only convert when a target or alternative sensor uses a different unit.
+const PRESSURE_UNITS = ['hPa', 'kPa', 'mbar', 'inHg', 'mmHg'];
+const HPA = { hPa: 1, kPa: 10, mbar: 1, inHg: 33.8638866667, mmHg: 1.33322387415 };
+const METRES = { m: 1, km: 1000, mi: 1609.344, ft: 0.3048 };
+const number$1 = value => value === undefined || value === null || value === '' || !Number.isFinite(Number(value)) ? undefined : Number(value);
+
+function convertTemperature(value, from, to) {
+  const n = number$1(value);
+  if (n === undefined || from === to) return n;
+  const celsius = from === '°C' ? n : from === '°F' ? (n - 32) * 5 / 9 : from === 'K' ? n - 273.15 : undefined;
+  if (celsius === undefined) return undefined;
+  const converted = to === '°C' ? celsius : to === '°F' ? celsius * 9 / 5 + 32 : to === 'K' ? celsius + 273.15 : undefined;
+  return converted === undefined ? undefined : Number(converted.toFixed(2));
+}
+
+function convertPressure(value, from, to) {
+  const n = number$1(value);
+  if (n === undefined || !HPA[from] || !HPA[to]) return undefined;
+  const converted = n * HPA[from] / HPA[to];
+  if (to === 'inHg') return converted.toFixed(2);
+  if (to === 'hPa' || to === 'mmHg') return Math.round(converted);
+  return Number(converted.toFixed(2));
+}
+
+function convertVisibility(value, from, to) {
+  const n = number$1(value);
+  if (n === undefined || from === to) return n;
+  if (!METRES[from] || !METRES[to]) return undefined;
+  return Number((n * METRES[from] / METRES[to]).toFixed(2));
+}
+
 const cardinalDirectionsIcon = [
   'arrow-down', 'arrow-bottom-left', 'arrow-left',
   'arrow-top-left', 'arrow-up', 'arrow-top-right',
@@ -835,838 +945,271 @@ const weatherIconsNight = {
 
 const WeatherEntityFeature = {
   FORECAST_DAILY: 1,
-  FORECAST_HOURLY: 2,
-  FORECAST_TWICE_DAILY: 4,
-};
+  FORECAST_HOURLY: 2};
 
 /**
  * @license
  * Copyright 2019 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const t$1=window,e$2=t$1.ShadowRoot&&(void 0===t$1.ShadyCSS||t$1.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,s$3=Symbol(),n$4=new WeakMap;let o$3 = class o{constructor(t,e,n){if(this._$cssResult$=!0,n!==s$3)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=t,this.t=e;}get styleSheet(){let t=this.o;const s=this.t;if(e$2&&void 0===t){const e=void 0!==s&&1===s.length;e&&(t=n$4.get(s)),void 0===t&&((this.o=t=new CSSStyleSheet).replaceSync(this.cssText),e&&n$4.set(s,t));}return t}toString(){return this.cssText}};const r$2=t=>new o$3("string"==typeof t?t:t+"",void 0,s$3),S$1=(s,n)=>{e$2?s.adoptedStyleSheets=n.map((t=>t instanceof CSSStyleSheet?t:t.styleSheet)):n.forEach((e=>{const n=document.createElement("style"),o=t$1.litNonce;void 0!==o&&n.setAttribute("nonce",o),n.textContent=e.cssText,s.appendChild(n);}));},c$1=e$2?t=>t:t=>t instanceof CSSStyleSheet?(t=>{let e="";for(const s of t.cssRules)e+=s.cssText;return r$2(e)})(t):t;
+const t$1=window,e$2=t$1.ShadowRoot&&(void 0===t$1.ShadyCSS||t$1.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,s$3=Symbol(),n$4=new WeakMap;let o$3 = class o{constructor(t,e,n){if(this._$cssResult$=true,n!==s$3)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=t,this.t=e;}get styleSheet(){let t=this.o;const s=this.t;if(e$2&&void 0===t){const e=void 0!==s&&1===s.length;e&&(t=n$4.get(s)),void 0===t&&((this.o=t=new CSSStyleSheet).replaceSync(this.cssText),e&&n$4.set(s,t));}return t}toString(){return this.cssText}};const r$2=t=>new o$3("string"==typeof t?t:t+"",void 0,s$3),S$1=(s,n)=>{e$2?s.adoptedStyleSheets=n.map((t=>t instanceof CSSStyleSheet?t:t.styleSheet)):n.forEach((e=>{const n=document.createElement("style"),o=t$1.litNonce;void 0!==o&&n.setAttribute("nonce",o),n.textContent=e.cssText,s.appendChild(n);}));},c$1=e$2?t=>t:t=>t instanceof CSSStyleSheet?(t=>{let e="";for(const s of t.cssRules)e+=s.cssText;return r$2(e)})(t):t;
 
 /**
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
- */var s$2;const e$1=window,r$1=e$1.trustedTypes,h$1=r$1?r$1.emptyScript:"",o$2=e$1.reactiveElementPolyfillSupport,n$3={toAttribute(t,i){switch(i){case Boolean:t=t?h$1:null;break;case Object:case Array:t=null==t?t:JSON.stringify(t);}return t},fromAttribute(t,i){let s=t;switch(i){case Boolean:s=null!==t;break;case Number:s=null===t?null:Number(t);break;case Object:case Array:try{s=JSON.parse(t);}catch(t){s=null;}}return s}},a$1=(t,i)=>i!==t&&(i==i||t==t),l$2={attribute:!0,type:String,converter:n$3,reflect:!1,hasChanged:a$1},d$1="finalized";let u$1 = class u extends HTMLElement{constructor(){super(),this._$Ei=new Map,this.isUpdatePending=!1,this.hasUpdated=!1,this._$El=null,this._$Eu();}static addInitializer(t){var i;this.finalize(),(null!==(i=this.h)&&void 0!==i?i:this.h=[]).push(t);}static get observedAttributes(){this.finalize();const t=[];return this.elementProperties.forEach(((i,s)=>{const e=this._$Ep(s,i);void 0!==e&&(this._$Ev.set(e,s),t.push(e));})),t}static createProperty(t,i=l$2){if(i.state&&(i.attribute=!1),this.finalize(),this.elementProperties.set(t,i),!i.noAccessor&&!this.prototype.hasOwnProperty(t)){const s="symbol"==typeof t?Symbol():"__"+t,e=this.getPropertyDescriptor(t,s,i);void 0!==e&&Object.defineProperty(this.prototype,t,e);}}static getPropertyDescriptor(t,i,s){return {get(){return this[i]},set(e){const r=this[t];this[i]=e,this.requestUpdate(t,r,s);},configurable:!0,enumerable:!0}}static getPropertyOptions(t){return this.elementProperties.get(t)||l$2}static finalize(){if(this.hasOwnProperty(d$1))return !1;this[d$1]=!0;const t=Object.getPrototypeOf(this);if(t.finalize(),void 0!==t.h&&(this.h=[...t.h]),this.elementProperties=new Map(t.elementProperties),this._$Ev=new Map,this.hasOwnProperty("properties")){const t=this.properties,i=[...Object.getOwnPropertyNames(t),...Object.getOwnPropertySymbols(t)];for(const s of i)this.createProperty(s,t[s]);}return this.elementStyles=this.finalizeStyles(this.styles),!0}static finalizeStyles(i){const s=[];if(Array.isArray(i)){const e=new Set(i.flat(1/0).reverse());for(const i of e)s.unshift(c$1(i));}else void 0!==i&&s.push(c$1(i));return s}static _$Ep(t,i){const s=i.attribute;return !1===s?void 0:"string"==typeof s?s:"string"==typeof t?t.toLowerCase():void 0}_$Eu(){var t;this._$E_=new Promise((t=>this.enableUpdating=t)),this._$AL=new Map,this._$Eg(),this.requestUpdate(),null===(t=this.constructor.h)||void 0===t||t.forEach((t=>t(this)));}addController(t){var i,s;(null!==(i=this._$ES)&&void 0!==i?i:this._$ES=[]).push(t),void 0!==this.renderRoot&&this.isConnected&&(null===(s=t.hostConnected)||void 0===s||s.call(t));}removeController(t){var i;null===(i=this._$ES)||void 0===i||i.splice(this._$ES.indexOf(t)>>>0,1);}_$Eg(){this.constructor.elementProperties.forEach(((t,i)=>{this.hasOwnProperty(i)&&(this._$Ei.set(i,this[i]),delete this[i]);}));}createRenderRoot(){var t;const s=null!==(t=this.shadowRoot)&&void 0!==t?t:this.attachShadow(this.constructor.shadowRootOptions);return S$1(s,this.constructor.elementStyles),s}connectedCallback(){var t;void 0===this.renderRoot&&(this.renderRoot=this.createRenderRoot()),this.enableUpdating(!0),null===(t=this._$ES)||void 0===t||t.forEach((t=>{var i;return null===(i=t.hostConnected)||void 0===i?void 0:i.call(t)}));}enableUpdating(t){}disconnectedCallback(){var t;null===(t=this._$ES)||void 0===t||t.forEach((t=>{var i;return null===(i=t.hostDisconnected)||void 0===i?void 0:i.call(t)}));}attributeChangedCallback(t,i,s){this._$AK(t,s);}_$EO(t,i,s=l$2){var e;const r=this.constructor._$Ep(t,s);if(void 0!==r&&!0===s.reflect){const h=(void 0!==(null===(e=s.converter)||void 0===e?void 0:e.toAttribute)?s.converter:n$3).toAttribute(i,s.type);this._$El=t,null==h?this.removeAttribute(r):this.setAttribute(r,h),this._$El=null;}}_$AK(t,i){var s;const e=this.constructor,r=e._$Ev.get(t);if(void 0!==r&&this._$El!==r){const t=e.getPropertyOptions(r),h="function"==typeof t.converter?{fromAttribute:t.converter}:void 0!==(null===(s=t.converter)||void 0===s?void 0:s.fromAttribute)?t.converter:n$3;this._$El=r,this[r]=h.fromAttribute(i,t.type),this._$El=null;}}requestUpdate(t,i,s){let e=!0;void 0!==t&&(((s=s||this.constructor.getPropertyOptions(t)).hasChanged||a$1)(this[t],i)?(this._$AL.has(t)||this._$AL.set(t,i),!0===s.reflect&&this._$El!==t&&(void 0===this._$EC&&(this._$EC=new Map),this._$EC.set(t,s))):e=!1),!this.isUpdatePending&&e&&(this._$E_=this._$Ej());}async _$Ej(){this.isUpdatePending=!0;try{await this._$E_;}catch(t){Promise.reject(t);}const t=this.scheduleUpdate();return null!=t&&await t,!this.isUpdatePending}scheduleUpdate(){return this.performUpdate()}performUpdate(){var t;if(!this.isUpdatePending)return;this.hasUpdated,this._$Ei&&(this._$Ei.forEach(((t,i)=>this[i]=t)),this._$Ei=void 0);let i=!1;const s=this._$AL;try{i=this.shouldUpdate(s),i?(this.willUpdate(s),null===(t=this._$ES)||void 0===t||t.forEach((t=>{var i;return null===(i=t.hostUpdate)||void 0===i?void 0:i.call(t)})),this.update(s)):this._$Ek();}catch(t){throw i=!1,this._$Ek(),t}i&&this._$AE(s);}willUpdate(t){}_$AE(t){var i;null===(i=this._$ES)||void 0===i||i.forEach((t=>{var i;return null===(i=t.hostUpdated)||void 0===i?void 0:i.call(t)})),this.hasUpdated||(this.hasUpdated=!0,this.firstUpdated(t)),this.updated(t);}_$Ek(){this._$AL=new Map,this.isUpdatePending=!1;}get updateComplete(){return this.getUpdateComplete()}getUpdateComplete(){return this._$E_}shouldUpdate(t){return !0}update(t){void 0!==this._$EC&&(this._$EC.forEach(((t,i)=>this._$EO(i,this[i],t))),this._$EC=void 0),this._$Ek();}updated(t){}firstUpdated(t){}};u$1[d$1]=!0,u$1.elementProperties=new Map,u$1.elementStyles=[],u$1.shadowRootOptions={mode:"open"},null==o$2||o$2({ReactiveElement:u$1}),(null!==(s$2=e$1.reactiveElementVersions)&&void 0!==s$2?s$2:e$1.reactiveElementVersions=[]).push("1.6.3");
+ */var s$2;const e$1=window,r$1=e$1.trustedTypes,h$1=r$1?r$1.emptyScript:"",o$2=e$1.reactiveElementPolyfillSupport,n$3={toAttribute(t,i){switch(i){case Boolean:t=t?h$1:null;break;case Object:case Array:t=null==t?t:JSON.stringify(t);}return t},fromAttribute(t,i){let s=t;switch(i){case Boolean:s=null!==t;break;case Number:s=null===t?null:Number(t);break;case Object:case Array:try{s=JSON.parse(t);}catch(t){s=null;}}return s}},a$1=(t,i)=>i!==t&&(i==i||t==t),l$2={attribute:true,type:String,converter:n$3,reflect:false,hasChanged:a$1},d$1="finalized";let u$1 = class u extends HTMLElement{constructor(){super(),this._$Ei=new Map,this.isUpdatePending=false,this.hasUpdated=false,this._$El=null,this._$Eu();}static addInitializer(t){var i;this.finalize(),(null!==(i=this.h)&&void 0!==i?i:this.h=[]).push(t);}static get observedAttributes(){this.finalize();const t=[];return this.elementProperties.forEach(((i,s)=>{const e=this._$Ep(s,i);void 0!==e&&(this._$Ev.set(e,s),t.push(e));})),t}static createProperty(t,i=l$2){if(i.state&&(i.attribute=false),this.finalize(),this.elementProperties.set(t,i),!i.noAccessor&&!this.prototype.hasOwnProperty(t)){const s="symbol"==typeof t?Symbol():"__"+t,e=this.getPropertyDescriptor(t,s,i);void 0!==e&&Object.defineProperty(this.prototype,t,e);}}static getPropertyDescriptor(t,i,s){return {get(){return this[i]},set(e){const r=this[t];this[i]=e,this.requestUpdate(t,r,s);},configurable:true,enumerable:true}}static getPropertyOptions(t){return this.elementProperties.get(t)||l$2}static finalize(){if(this.hasOwnProperty(d$1))return  false;this[d$1]=true;const t=Object.getPrototypeOf(this);if(t.finalize(),void 0!==t.h&&(this.h=[...t.h]),this.elementProperties=new Map(t.elementProperties),this._$Ev=new Map,this.hasOwnProperty("properties")){const t=this.properties,i=[...Object.getOwnPropertyNames(t),...Object.getOwnPropertySymbols(t)];for(const s of i)this.createProperty(s,t[s]);}return this.elementStyles=this.finalizeStyles(this.styles),true}static finalizeStyles(i){const s=[];if(Array.isArray(i)){const e=new Set(i.flat(1/0).reverse());for(const i of e)s.unshift(c$1(i));}else void 0!==i&&s.push(c$1(i));return s}static _$Ep(t,i){const s=i.attribute;return  false===s?void 0:"string"==typeof s?s:"string"==typeof t?t.toLowerCase():void 0}_$Eu(){var t;this._$E_=new Promise((t=>this.enableUpdating=t)),this._$AL=new Map,this._$Eg(),this.requestUpdate(),null===(t=this.constructor.h)||void 0===t||t.forEach((t=>t(this)));}addController(t){var i,s;(null!==(i=this._$ES)&&void 0!==i?i:this._$ES=[]).push(t),void 0!==this.renderRoot&&this.isConnected&&(null===(s=t.hostConnected)||void 0===s||s.call(t));}removeController(t){var i;null===(i=this._$ES)||void 0===i||i.splice(this._$ES.indexOf(t)>>>0,1);}_$Eg(){this.constructor.elementProperties.forEach(((t,i)=>{this.hasOwnProperty(i)&&(this._$Ei.set(i,this[i]),delete this[i]);}));}createRenderRoot(){var t;const s=null!==(t=this.shadowRoot)&&void 0!==t?t:this.attachShadow(this.constructor.shadowRootOptions);return S$1(s,this.constructor.elementStyles),s}connectedCallback(){var t;void 0===this.renderRoot&&(this.renderRoot=this.createRenderRoot()),this.enableUpdating(true),null===(t=this._$ES)||void 0===t||t.forEach((t=>{var i;return null===(i=t.hostConnected)||void 0===i?void 0:i.call(t)}));}enableUpdating(t){}disconnectedCallback(){var t;null===(t=this._$ES)||void 0===t||t.forEach((t=>{var i;return null===(i=t.hostDisconnected)||void 0===i?void 0:i.call(t)}));}attributeChangedCallback(t,i,s){this._$AK(t,s);}_$EO(t,i,s=l$2){var e;const r=this.constructor._$Ep(t,s);if(void 0!==r&&true===s.reflect){const h=(void 0!==(null===(e=s.converter)||void 0===e?void 0:e.toAttribute)?s.converter:n$3).toAttribute(i,s.type);this._$El=t,null==h?this.removeAttribute(r):this.setAttribute(r,h),this._$El=null;}}_$AK(t,i){var s;const e=this.constructor,r=e._$Ev.get(t);if(void 0!==r&&this._$El!==r){const t=e.getPropertyOptions(r),h="function"==typeof t.converter?{fromAttribute:t.converter}:void 0!==(null===(s=t.converter)||void 0===s?void 0:s.fromAttribute)?t.converter:n$3;this._$El=r,this[r]=h.fromAttribute(i,t.type),this._$El=null;}}requestUpdate(t,i,s){let e=true;void 0!==t&&(((s=s||this.constructor.getPropertyOptions(t)).hasChanged||a$1)(this[t],i)?(this._$AL.has(t)||this._$AL.set(t,i),true===s.reflect&&this._$El!==t&&(void 0===this._$EC&&(this._$EC=new Map),this._$EC.set(t,s))):e=false),!this.isUpdatePending&&e&&(this._$E_=this._$Ej());}async _$Ej(){this.isUpdatePending=true;try{await this._$E_;}catch(t){Promise.reject(t);}const t=this.scheduleUpdate();return null!=t&&await t,!this.isUpdatePending}scheduleUpdate(){return this.performUpdate()}performUpdate(){var t;if(!this.isUpdatePending)return;this.hasUpdated,this._$Ei&&(this._$Ei.forEach(((t,i)=>this[i]=t)),this._$Ei=void 0);let i=false;const s=this._$AL;try{i=this.shouldUpdate(s),i?(this.willUpdate(s),null===(t=this._$ES)||void 0===t||t.forEach((t=>{var i;return null===(i=t.hostUpdate)||void 0===i?void 0:i.call(t)})),this.update(s)):this._$Ek();}catch(t){throw i=false,this._$Ek(),t}i&&this._$AE(s);}willUpdate(t){}_$AE(t){var i;null===(i=this._$ES)||void 0===i||i.forEach((t=>{var i;return null===(i=t.hostUpdated)||void 0===i?void 0:i.call(t)})),this.hasUpdated||(this.hasUpdated=true,this.firstUpdated(t)),this.updated(t);}_$Ek(){this._$AL=new Map,this.isUpdatePending=false;}get updateComplete(){return this.getUpdateComplete()}getUpdateComplete(){return this._$E_}shouldUpdate(t){return  true}update(t){ void 0!==this._$EC&&(this._$EC.forEach(((t,i)=>this._$EO(i,this[i],t))),this._$EC=void 0),this._$Ek();}updated(t){}firstUpdated(t){}};u$1[d$1]=true,u$1.elementProperties=new Map,u$1.elementStyles=[],u$1.shadowRootOptions={mode:"open"},null==o$2||o$2({ReactiveElement:u$1}),(null!==(s$2=e$1.reactiveElementVersions)&&void 0!==s$2?s$2:e$1.reactiveElementVersions=[]).push("1.6.3");
 
 /**
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-var t;const i=window,s$1=i.trustedTypes,e=s$1?s$1.createPolicy("lit-html",{createHTML:t=>t}):void 0,o$1="$lit$",n$2=`lit$${(Math.random()+"").slice(9)}$`,l$1="?"+n$2,h=`<${l$1}>`,r=document,u=()=>r.createComment(""),d=t=>null===t||"object"!=typeof t&&"function"!=typeof t,c=Array.isArray,v=t=>c(t)||"function"==typeof(null==t?void 0:t[Symbol.iterator]),a="[ \t\n\f\r]",f=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,_=/-->/g,m=/>/g,p=RegExp(`>|${a}(?:([^\\s"'>=/]+)(${a}*=${a}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),g=/'/g,$=/"/g,y=/^(?:script|style|textarea|title)$/i,w=t=>(i,...s)=>({_$litType$:t,strings:i,values:s}),x=w(1),T=Symbol.for("lit-noChange"),A=Symbol.for("lit-nothing"),E=new WeakMap,C=r.createTreeWalker(r,129,null,!1);function P(t,i){if(!Array.isArray(t)||!t.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==e?e.createHTML(i):i}const V=(t,i)=>{const s=t.length-1,e=[];let l,r=2===i?"<svg>":"",u=f;for(let i=0;i<s;i++){const s=t[i];let d,c,v=-1,a=0;for(;a<s.length&&(u.lastIndex=a,c=u.exec(s),null!==c);)a=u.lastIndex,u===f?"!--"===c[1]?u=_:void 0!==c[1]?u=m:void 0!==c[2]?(y.test(c[2])&&(l=RegExp("</"+c[2],"g")),u=p):void 0!==c[3]&&(u=p):u===p?">"===c[0]?(u=null!=l?l:f,v=-1):void 0===c[1]?v=-2:(v=u.lastIndex-c[2].length,d=c[1],u=void 0===c[3]?p:'"'===c[3]?$:g):u===$||u===g?u=p:u===_||u===m?u=f:(u=p,l=void 0);const w=u===p&&t[i+1].startsWith("/>")?" ":"";r+=u===f?s+h:v>=0?(e.push(d),s.slice(0,v)+o$1+s.slice(v)+n$2+w):s+n$2+(-2===v?(e.push(void 0),i):w);}return [P(t,r+(t[s]||"<?>")+(2===i?"</svg>":"")),e]};class N{constructor({strings:t,_$litType$:i},e){let h;this.parts=[];let r=0,d=0;const c=t.length-1,v=this.parts,[a,f]=V(t,i);if(this.el=N.createElement(a,e),C.currentNode=this.el.content,2===i){const t=this.el.content,i=t.firstChild;i.remove(),t.append(...i.childNodes);}for(;null!==(h=C.nextNode())&&v.length<c;){if(1===h.nodeType){if(h.hasAttributes()){const t=[];for(const i of h.getAttributeNames())if(i.endsWith(o$1)||i.startsWith(n$2)){const s=f[d++];if(t.push(i),void 0!==s){const t=h.getAttribute(s.toLowerCase()+o$1).split(n$2),i=/([.?@])?(.*)/.exec(s);v.push({type:1,index:r,name:i[2],strings:t,ctor:"."===i[1]?H:"?"===i[1]?L:"@"===i[1]?z:k});}else v.push({type:6,index:r});}for(const i of t)h.removeAttribute(i);}if(y.test(h.tagName)){const t=h.textContent.split(n$2),i=t.length-1;if(i>0){h.textContent=s$1?s$1.emptyScript:"";for(let s=0;s<i;s++)h.append(t[s],u()),C.nextNode(),v.push({type:2,index:++r});h.append(t[i],u());}}}else if(8===h.nodeType)if(h.data===l$1)v.push({type:2,index:r});else {let t=-1;for(;-1!==(t=h.data.indexOf(n$2,t+1));)v.push({type:7,index:r}),t+=n$2.length-1;}r++;}}static createElement(t,i){const s=r.createElement("template");return s.innerHTML=t,s}}function S(t,i,s=t,e){var o,n,l,h;if(i===T)return i;let r=void 0!==e?null===(o=s._$Co)||void 0===o?void 0:o[e]:s._$Cl;const u=d(i)?void 0:i._$litDirective$;return (null==r?void 0:r.constructor)!==u&&(null===(n=null==r?void 0:r._$AO)||void 0===n||n.call(r,!1),void 0===u?r=void 0:(r=new u(t),r._$AT(t,s,e)),void 0!==e?(null!==(l=(h=s)._$Co)&&void 0!==l?l:h._$Co=[])[e]=r:s._$Cl=r),void 0!==r&&(i=S(t,r._$AS(t,i.values),r,e)),i}class M{constructor(t,i){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=i;}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){var i;const{el:{content:s},parts:e}=this._$AD,o=(null!==(i=null==t?void 0:t.creationScope)&&void 0!==i?i:r).importNode(s,!0);C.currentNode=o;let n=C.nextNode(),l=0,h=0,u=e[0];for(;void 0!==u;){if(l===u.index){let i;2===u.type?i=new R(n,n.nextSibling,this,t):1===u.type?i=new u.ctor(n,u.name,u.strings,this,t):6===u.type&&(i=new Z(n,this,t)),this._$AV.push(i),u=e[++h];}l!==(null==u?void 0:u.index)&&(n=C.nextNode(),l++);}return C.currentNode=r,o}v(t){let i=0;for(const s of this._$AV)void 0!==s&&(void 0!==s.strings?(s._$AI(t,s,i),i+=s.strings.length-2):s._$AI(t[i])),i++;}}class R{constructor(t,i,s,e){var o;this.type=2,this._$AH=A,this._$AN=void 0,this._$AA=t,this._$AB=i,this._$AM=s,this.options=e,this._$Cp=null===(o=null==e?void 0:e.isConnected)||void 0===o||o;}get _$AU(){var t,i;return null!==(i=null===(t=this._$AM)||void 0===t?void 0:t._$AU)&&void 0!==i?i:this._$Cp}get parentNode(){let t=this._$AA.parentNode;const i=this._$AM;return void 0!==i&&11===(null==t?void 0:t.nodeType)&&(t=i.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,i=this){t=S(this,t,i),d(t)?t===A||null==t||""===t?(this._$AH!==A&&this._$AR(),this._$AH=A):t!==this._$AH&&t!==T&&this._(t):void 0!==t._$litType$?this.g(t):void 0!==t.nodeType?this.$(t):v(t)?this.T(t):this._(t);}k(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}$(t){this._$AH!==t&&(this._$AR(),this._$AH=this.k(t));}_(t){this._$AH!==A&&d(this._$AH)?this._$AA.nextSibling.data=t:this.$(r.createTextNode(t)),this._$AH=t;}g(t){var i;const{values:s,_$litType$:e}=t,o="number"==typeof e?this._$AC(t):(void 0===e.el&&(e.el=N.createElement(P(e.h,e.h[0]),this.options)),e);if((null===(i=this._$AH)||void 0===i?void 0:i._$AD)===o)this._$AH.v(s);else {const t=new M(o,this),i=t.u(this.options);t.v(s),this.$(i),this._$AH=t;}}_$AC(t){let i=E.get(t.strings);return void 0===i&&E.set(t.strings,i=new N(t)),i}T(t){c(this._$AH)||(this._$AH=[],this._$AR());const i=this._$AH;let s,e=0;for(const o of t)e===i.length?i.push(s=new R(this.k(u()),this.k(u()),this,this.options)):s=i[e],s._$AI(o),e++;e<i.length&&(this._$AR(s&&s._$AB.nextSibling,e),i.length=e);}_$AR(t=this._$AA.nextSibling,i){var s;for(null===(s=this._$AP)||void 0===s||s.call(this,!1,!0,i);t&&t!==this._$AB;){const i=t.nextSibling;t.remove(),t=i;}}setConnected(t){var i;void 0===this._$AM&&(this._$Cp=t,null===(i=this._$AP)||void 0===i||i.call(this,t));}}class k{constructor(t,i,s,e,o){this.type=1,this._$AH=A,this._$AN=void 0,this.element=t,this.name=i,this._$AM=e,this.options=o,s.length>2||""!==s[0]||""!==s[1]?(this._$AH=Array(s.length-1).fill(new String),this.strings=s):this._$AH=A;}get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}_$AI(t,i=this,s,e){const o=this.strings;let n=!1;if(void 0===o)t=S(this,t,i,0),n=!d(t)||t!==this._$AH&&t!==T,n&&(this._$AH=t);else {const e=t;let l,h;for(t=o[0],l=0;l<o.length-1;l++)h=S(this,e[s+l],i,l),h===T&&(h=this._$AH[l]),n||(n=!d(h)||h!==this._$AH[l]),h===A?t=A:t!==A&&(t+=(null!=h?h:"")+o[l+1]),this._$AH[l]=h;}n&&!e&&this.j(t);}j(t){t===A?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,null!=t?t:"");}}class H extends k{constructor(){super(...arguments),this.type=3;}j(t){this.element[this.name]=t===A?void 0:t;}}const I=s$1?s$1.emptyScript:"";class L extends k{constructor(){super(...arguments),this.type=4;}j(t){t&&t!==A?this.element.setAttribute(this.name,I):this.element.removeAttribute(this.name);}}class z extends k{constructor(t,i,s,e,o){super(t,i,s,e,o),this.type=5;}_$AI(t,i=this){var s;if((t=null!==(s=S(this,t,i,0))&&void 0!==s?s:A)===T)return;const e=this._$AH,o=t===A&&e!==A||t.capture!==e.capture||t.once!==e.once||t.passive!==e.passive,n=t!==A&&(e===A||o);o&&this.element.removeEventListener(this.name,this,e),n&&this.element.addEventListener(this.name,this,t),this._$AH=t;}handleEvent(t){var i,s;"function"==typeof this._$AH?this._$AH.call(null!==(s=null===(i=this.options)||void 0===i?void 0:i.host)&&void 0!==s?s:this.element,t):this._$AH.handleEvent(t);}}class Z{constructor(t,i,s){this.element=t,this.type=6,this._$AN=void 0,this._$AM=i,this.options=s;}get _$AU(){return this._$AM._$AU}_$AI(t){S(this,t);}}const B=i.litHtmlPolyfillSupport;null==B||B(N,R),(null!==(t=i.litHtmlVersions)&&void 0!==t?t:i.litHtmlVersions=[]).push("2.8.0");const D=(t,i,s)=>{var e,o;const n=null!==(e=null==s?void 0:s.renderBefore)&&void 0!==e?e:i;let l=n._$litPart$;if(void 0===l){const t=null!==(o=null==s?void 0:s.renderBefore)&&void 0!==o?o:null;n._$litPart$=l=new R(i.insertBefore(u(),t),t,void 0,null!=s?s:{});}return l._$AI(t),l};
+var t;const i=window,s$1=i.trustedTypes,e=s$1?s$1.createPolicy("lit-html",{createHTML:t=>t}):void 0,o$1="$lit$",n$2=`lit$${(Math.random()+"").slice(9)}$`,l$1="?"+n$2,h=`<${l$1}>`,r=document,u=()=>r.createComment(""),d=t=>null===t||"object"!=typeof t&&"function"!=typeof t,c=Array.isArray,v=t=>c(t)||"function"==typeof(null==t?void 0:t[Symbol.iterator]),a="[ \t\n\f\r]",f=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,_=/-->/g,m=/>/g,p=RegExp(`>|${a}(?:([^\\s"'>=/]+)(${a}*=${a}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),g=/'/g,$=/"/g,y=/^(?:script|style|textarea|title)$/i,w=t=>(i,...s)=>({_$litType$:t,strings:i,values:s}),x=w(1),T=Symbol.for("lit-noChange"),A=Symbol.for("lit-nothing"),E=new WeakMap,C=r.createTreeWalker(r,129,null,false);function P(t,i){if(!Array.isArray(t)||!t.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==e?e.createHTML(i):i}const V=(t,i)=>{const s=t.length-1,e=[];let l,r=2===i?"<svg>":"",u=f;for(let i=0;i<s;i++){const s=t[i];let d,c,v=-1,a=0;for(;a<s.length&&(u.lastIndex=a,c=u.exec(s),null!==c);)a=u.lastIndex,u===f?"!--"===c[1]?u=_:void 0!==c[1]?u=m:void 0!==c[2]?(y.test(c[2])&&(l=RegExp("</"+c[2],"g")),u=p):void 0!==c[3]&&(u=p):u===p?">"===c[0]?(u=null!=l?l:f,v=-1):void 0===c[1]?v=-2:(v=u.lastIndex-c[2].length,d=c[1],u=void 0===c[3]?p:'"'===c[3]?$:g):u===$||u===g?u=p:u===_||u===m?u=f:(u=p,l=void 0);const w=u===p&&t[i+1].startsWith("/>")?" ":"";r+=u===f?s+h:v>=0?(e.push(d),s.slice(0,v)+o$1+s.slice(v)+n$2+w):s+n$2+(-2===v?(e.push(void 0),i):w);}return [P(t,r+(t[s]||"<?>")+(2===i?"</svg>":"")),e]};class N{constructor({strings:t,_$litType$:i},e){let h;this.parts=[];let r=0,d=0;const c=t.length-1,v=this.parts,[a,f]=V(t,i);if(this.el=N.createElement(a,e),C.currentNode=this.el.content,2===i){const t=this.el.content,i=t.firstChild;i.remove(),t.append(...i.childNodes);}for(;null!==(h=C.nextNode())&&v.length<c;){if(1===h.nodeType){if(h.hasAttributes()){const t=[];for(const i of h.getAttributeNames())if(i.endsWith(o$1)||i.startsWith(n$2)){const s=f[d++];if(t.push(i),void 0!==s){const t=h.getAttribute(s.toLowerCase()+o$1).split(n$2),i=/([.?@])?(.*)/.exec(s);v.push({type:1,index:r,name:i[2],strings:t,ctor:"."===i[1]?H:"?"===i[1]?L:"@"===i[1]?z:k});}else v.push({type:6,index:r});}for(const i of t)h.removeAttribute(i);}if(y.test(h.tagName)){const t=h.textContent.split(n$2),i=t.length-1;if(i>0){h.textContent=s$1?s$1.emptyScript:"";for(let s=0;s<i;s++)h.append(t[s],u()),C.nextNode(),v.push({type:2,index:++r});h.append(t[i],u());}}}else if(8===h.nodeType)if(h.data===l$1)v.push({type:2,index:r});else {let t=-1;for(;-1!==(t=h.data.indexOf(n$2,t+1));)v.push({type:7,index:r}),t+=n$2.length-1;}r++;}}static createElement(t,i){const s=r.createElement("template");return s.innerHTML=t,s}}function S(t,i,s=t,e){var o,n,l,h;if(i===T)return i;let r=void 0!==e?null===(o=s._$Co)||void 0===o?void 0:o[e]:s._$Cl;const u=d(i)?void 0:i._$litDirective$;return (null==r?void 0:r.constructor)!==u&&(null===(n=null==r?void 0:r._$AO)||void 0===n||n.call(r,false),void 0===u?r=void 0:(r=new u(t),r._$AT(t,s,e)),void 0!==e?(null!==(l=(h=s)._$Co)&&void 0!==l?l:h._$Co=[])[e]=r:s._$Cl=r),void 0!==r&&(i=S(t,r._$AS(t,i.values),r,e)),i}class M{constructor(t,i){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=i;}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){var i;const{el:{content:s},parts:e}=this._$AD,o=(null!==(i=null==t?void 0:t.creationScope)&&void 0!==i?i:r).importNode(s,true);C.currentNode=o;let n=C.nextNode(),l=0,h=0,u=e[0];for(;void 0!==u;){if(l===u.index){let i;2===u.type?i=new R(n,n.nextSibling,this,t):1===u.type?i=new u.ctor(n,u.name,u.strings,this,t):6===u.type&&(i=new Z(n,this,t)),this._$AV.push(i),u=e[++h];}l!==(null==u?void 0:u.index)&&(n=C.nextNode(),l++);}return C.currentNode=r,o}v(t){let i=0;for(const s of this._$AV) void 0!==s&&(void 0!==s.strings?(s._$AI(t,s,i),i+=s.strings.length-2):s._$AI(t[i])),i++;}}class R{constructor(t,i,s,e){var o;this.type=2,this._$AH=A,this._$AN=void 0,this._$AA=t,this._$AB=i,this._$AM=s,this.options=e,this._$Cp=null===(o=null==e?void 0:e.isConnected)||void 0===o||o;}get _$AU(){var t,i;return null!==(i=null===(t=this._$AM)||void 0===t?void 0:t._$AU)&&void 0!==i?i:this._$Cp}get parentNode(){let t=this._$AA.parentNode;const i=this._$AM;return void 0!==i&&11===(null==t?void 0:t.nodeType)&&(t=i.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,i=this){t=S(this,t,i),d(t)?t===A||null==t||""===t?(this._$AH!==A&&this._$AR(),this._$AH=A):t!==this._$AH&&t!==T&&this._(t):void 0!==t._$litType$?this.g(t):void 0!==t.nodeType?this.$(t):v(t)?this.T(t):this._(t);}k(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}$(t){this._$AH!==t&&(this._$AR(),this._$AH=this.k(t));}_(t){this._$AH!==A&&d(this._$AH)?this._$AA.nextSibling.data=t:this.$(r.createTextNode(t)),this._$AH=t;}g(t){var i;const{values:s,_$litType$:e}=t,o="number"==typeof e?this._$AC(t):(void 0===e.el&&(e.el=N.createElement(P(e.h,e.h[0]),this.options)),e);if((null===(i=this._$AH)||void 0===i?void 0:i._$AD)===o)this._$AH.v(s);else {const t=new M(o,this),i=t.u(this.options);t.v(s),this.$(i),this._$AH=t;}}_$AC(t){let i=E.get(t.strings);return void 0===i&&E.set(t.strings,i=new N(t)),i}T(t){c(this._$AH)||(this._$AH=[],this._$AR());const i=this._$AH;let s,e=0;for(const o of t)e===i.length?i.push(s=new R(this.k(u()),this.k(u()),this,this.options)):s=i[e],s._$AI(o),e++;e<i.length&&(this._$AR(s&&s._$AB.nextSibling,e),i.length=e);}_$AR(t=this._$AA.nextSibling,i){var s;for(null===(s=this._$AP)||void 0===s||s.call(this,false,true,i);t&&t!==this._$AB;){const i=t.nextSibling;t.remove(),t=i;}}setConnected(t){var i;void 0===this._$AM&&(this._$Cp=t,null===(i=this._$AP)||void 0===i||i.call(this,t));}}class k{constructor(t,i,s,e,o){this.type=1,this._$AH=A,this._$AN=void 0,this.element=t,this.name=i,this._$AM=e,this.options=o,s.length>2||""!==s[0]||""!==s[1]?(this._$AH=Array(s.length-1).fill(new String),this.strings=s):this._$AH=A;}get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}_$AI(t,i=this,s,e){const o=this.strings;let n=false;if(void 0===o)t=S(this,t,i,0),n=!d(t)||t!==this._$AH&&t!==T,n&&(this._$AH=t);else {const e=t;let l,h;for(t=o[0],l=0;l<o.length-1;l++)h=S(this,e[s+l],i,l),h===T&&(h=this._$AH[l]),n||(n=!d(h)||h!==this._$AH[l]),h===A?t=A:t!==A&&(t+=(null!=h?h:"")+o[l+1]),this._$AH[l]=h;}n&&!e&&this.j(t);}j(t){t===A?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,null!=t?t:"");}}class H extends k{constructor(){super(...arguments),this.type=3;}j(t){this.element[this.name]=t===A?void 0:t;}}const I=s$1?s$1.emptyScript:"";class L extends k{constructor(){super(...arguments),this.type=4;}j(t){t&&t!==A?this.element.setAttribute(this.name,I):this.element.removeAttribute(this.name);}}class z extends k{constructor(t,i,s,e,o){super(t,i,s,e,o),this.type=5;}_$AI(t,i=this){var s;if((t=null!==(s=S(this,t,i,0))&&void 0!==s?s:A)===T)return;const e=this._$AH,o=t===A&&e!==A||t.capture!==e.capture||t.once!==e.once||t.passive!==e.passive,n=t!==A&&(e===A||o);o&&this.element.removeEventListener(this.name,this,e),n&&this.element.addEventListener(this.name,this,t),this._$AH=t;}handleEvent(t){var i,s;"function"==typeof this._$AH?this._$AH.call(null!==(s=null===(i=this.options)||void 0===i?void 0:i.host)&&void 0!==s?s:this.element,t):this._$AH.handleEvent(t);}}class Z{constructor(t,i,s){this.element=t,this.type=6,this._$AN=void 0,this._$AM=i,this.options=s;}get _$AU(){return this._$AM._$AU}_$AI(t){S(this,t);}}const B=i.litHtmlPolyfillSupport;null==B||B(N,R),(null!==(t=i.litHtmlVersions)&&void 0!==t?t:i.litHtmlVersions=[]).push("2.8.0");const D=(t,i,s)=>{var e,o;const n=null!==(e=null==s?void 0:s.renderBefore)&&void 0!==e?e:i;let l=n._$litPart$;if(void 0===l){const t=null!==(o=null==s?void 0:s.renderBefore)&&void 0!==o?o:null;n._$litPart$=l=new R(i.insertBefore(u(),t),t,void 0,null!=s?s:{});}return l._$AI(t),l};
 
 /**
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
- */var l,o;class s extends u$1{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0;}createRenderRoot(){var t,e;const i=super.createRenderRoot();return null!==(t=(e=this.renderOptions).renderBefore)&&void 0!==t||(e.renderBefore=i.firstChild),i}update(t){const i=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(t),this._$Do=D(i,this.renderRoot,this.renderOptions);}connectedCallback(){var t;super.connectedCallback(),null===(t=this._$Do)||void 0===t||t.setConnected(!0);}disconnectedCallback(){var t;super.disconnectedCallback(),null===(t=this._$Do)||void 0===t||t.setConnected(!1);}render(){return T}}s.finalized=!0,s._$litElement$=!0,null===(l=globalThis.litElementHydrateSupport)||void 0===l||l.call(globalThis,{LitElement:s});const n$1=globalThis.litElementPolyfillSupport;null==n$1||n$1({LitElement:s});(null!==(o=globalThis.litElementVersions)&&void 0!==o?o:globalThis.litElementVersions=[]).push("3.3.3");
+ */var l,o;class s extends u$1{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0;}createRenderRoot(){var t,e;const i=super.createRenderRoot();return null!==(t=(e=this.renderOptions).renderBefore)&&void 0!==t||(e.renderBefore=i.firstChild),i}update(t){const i=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(t),this._$Do=D(i,this.renderRoot,this.renderOptions);}connectedCallback(){var t;super.connectedCallback(),null===(t=this._$Do)||void 0===t||t.setConnected(true);}disconnectedCallback(){var t;super.disconnectedCallback(),null===(t=this._$Do)||void 0===t||t.setConnected(false);}render(){return T}}s.finalized=true,s._$litElement$=true,null===(l=globalThis.litElementHydrateSupport)||void 0===l||l.call(globalThis,{LitElement:s});const n$1=globalThis.litElementPolyfillSupport;null==n$1||n$1({LitElement:s});(null!==(o=globalThis.litElementVersions)&&void 0!==o?o:globalThis.litElementVersions=[]).push("3.3.3");
 
-const ALT_SCHEMA = [
-  { name: "temp", title: "Alternative temperature sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "feels_like", title: "Alternative feels like temperature sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "description", title: "Alternative weather description sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "press", title: "Alternative pressure sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "humid", title: "Alternative humidity sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "uv", title: "Alternative UV index sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "winddir", title: "Alternative wind bearing sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "windspeed", title: "Alternative wind speed sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "dew_point", title: "Alternative dew pointsensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "wind_gust_speed", title: "Alternative wind gust speed sensor", selector: { entity: { domain: 'sensor' } } },
-  { name: "visibility", title: "Alternative visibility sensor", selector: { entity: { domain: 'sensor' } } },
+// Native editor field inventory. Defaults mirror the renderer's public contract.
+const field = (name, label, selector, defaultValue, required = false) => ({ name, label, selector, defaultValue, required });
+const bool = (name, label, value) => field(name, label, { boolean: {} }, value);
+const text = (name, label, value = '') => field(name, label, { text: {} }, value);
+const number = (name, label, value, min = 1, max) => field(name, label, { number: { mode: 'box', min, step: 1, ...(max === undefined ? {} : { max }) } }, value);
+const select = (name, label, options, value) => field(name, label, { select: { mode: 'dropdown', options: options.map(option => typeof option === 'string' ? { value: option, label: option } : option) } }, value);
+const positions$1 = [{ value: 'inline', label: 'Beside number' }, { value: 'below', label: 'Below number' }, { value: 'hidden', label: 'Hidden' }];
+const languageNames = new Intl.DisplayNames(['en'], { type: 'language' });
+
+const MAIN_FIELDS = [
+  field('entity', 'Weather entity', { entity: { domain: 'weather' } }, undefined, true),
+  text('title', 'Title'),
+  select('locale', 'Language', [{ value: 'auto', label: 'HASS default' }, ...Object.keys(locale).map(value => ({ value, label: languageNames.of(value) }))], 'auto'),
+  bool('show_main', 'Show weather summary', true),
+  bool('show_temperature', 'Show temperature', true),
+  bool('show_current_condition', 'Show condition text', true),
+  bool('show_attributes', 'Show weather attributes', true),
+  select('attributes_position', 'Attributes position', [{ value: 'row', label: 'Separate row' }, { value: 'center', label: 'Header — centre' }, { value: 'left', label: 'Header — left' }], 'row'),
+  bool('show_humidity', 'Show humidity', true),
+  bool('show_pressure', 'Show pressure', true),
+  bool('show_wind_direction', 'Show wind direction', true),
+  bool('show_wind_speed', 'Show current wind speed', true),
+  bool('show_sun', 'Show sunrise and sunset', true),
+  bool('show_feels_like', 'Show feels-like temperature', false),
+  bool('show_dew_point', 'Show dew point', false),
+  bool('show_wind_gust_speed', 'Show wind gust speed', false),
+  bool('show_visibility', 'Show visibility', false),
+  bool('show_description', 'Show weather description', false),
+  bool('show_last_changed', 'Show last-changed time', false),
+  bool('show_time', 'Show clock', false),
+  bool('show_time_seconds', 'Show clock seconds', false),
+  bool('show_day', 'Show current weekday', false),
+  bool('show_date', 'Show current date', false),
+  bool('use_12hour_format', 'Use 12-hour clock', false),
+  bool('autoscroll', 'Scroll past forecast points automatically', false),
+  bool('animated_icons', 'Use animated weather icons', false),
+  select('icon_style', 'Animated icon set', ['style1', 'style2'], 'style1'),
+  text('icons', 'Custom SVG icon base URL'),
+  number('icons_size', 'Animated/custom forecast icon baseline (px)', 25),
+  number('current_temp_size', 'Current temperature baseline (px)', 28),
+  number('time_size', 'Clock baseline (px)', 26),
+  number('day_date_size', 'Current day/date baseline (px)', 15),
 ];
+
+const FORECAST_FIELDS = [
+  select('type', 'Forecast type', [{ value: 'daily', label: 'Daily' }, { value: 'hourly', label: 'Hourly' }], 'daily'),
+  select('style', 'Chart style', [{ value: 'style1', label: 'Style 1 — boxed values' }, { value: 'style2', label: 'Style 2 — plain values' }], 'style1'),
+  select('precipitation_type', 'Precipitation data', [{ value: 'rainfall', label: 'Amount' }, { value: 'probability', label: 'Probability' }], 'rainfall'),
+  bool('show_probability', 'Also show precipitation probability', false),
+  bool('condition_icons', 'Show forecast condition icons', true),
+  bool('show_wind_forecast', 'Show forecast wind indicators', true),
+  bool('round_temp', 'Round forecast temperatures', false),
+  bool('disable_animation', 'Disable chart animation', false),
+  number('number_of_forecasts', 'Forecast points (0 = automatic)', 0, 0),
+  number('chart_height', 'Chart height (px)', 180),
+  number('labels_font_size', 'Temperature/precipitation label baseline (px)', 11),
+  number('precip_bar_size', 'Precipitation bar width (%)', 100, 0, 100),
+  text('temperature1_color', 'High-temperature line color', 'rgba(255, 152, 0, 1.0)'),
+  text('temperature2_color', 'Low-temperature line color', 'rgba(68, 115, 158, 1.0)'),
+  text('precipitation_color', 'Precipitation bar color', 'rgba(132, 209, 253, 1.0)'),
+  text('chart_datetime_color', 'Day/hour label color (blank = theme)'),
+  text('chart_text_color', 'Value label color (blank = default, auto = theme)'),
+];
+
+const UNIT_FIELDS = [
+  select('speed', 'Wind unit (current, gusts and forecasts)', [{ value: 'auto', label: 'Weather entity' }, ...WIND_SPEED_UNITS.filter(value => value !== 'Beaufort')], 'auto'),
+  select('pressure', 'Pressure unit', [{ value: 'auto', label: 'Weather entity' }, ...PRESSURE_UNITS], 'hPa'),
+  select('visibility', 'Visibility unit', [{ value: 'auto', label: 'Weather entity' }, 'km', 'mi'], 'auto'),
+];
+
+const LAYOUT_FIELDS = [
+  select('wind_unit_position', 'Forecast wind unit position', positions$1, 'inline'),
+  select('precipitation_unit_position', 'Precipitation unit position', positions$1, 'inline'),
+  bool('precipitation_border', 'Box around precipitation labels', true),
+  text('precipitation_border_color', 'Precipitation outline color (blank = bar color)'),
+  bool('labels_bold', 'Bold forecast day/hour labels', false),
+  select('weekday_format', 'Daily forecast weekday names', [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], 'short'),
+  number('grid_line_width', 'Forecast divider line width (px)', 2),
+  field('padding_scale', 'Spacing scale (0.70 = 30% less)', { number: { mode: 'box', min: 0, step: 0.01 } }, 0.7),
+];
+
+const ALTERNATE_FIELDS = [
+  ['temp', 'Alternative temperature sensor'], ['feels_like', 'Alternative feels-like sensor'],
+  ['description', 'Alternative description sensor'], ['press', 'Alternative pressure sensor'],
+  ['humid', 'Alternative humidity sensor'], ['uv', 'Alternative UV sensor'],
+  ['winddir', 'Alternative wind-bearing sensor (degrees)'], ['windspeed', 'Alternative wind-speed sensor'],
+  ['dew_point', 'Alternative dew-point sensor'], ['wind_gust_speed', 'Alternative gust sensor'],
+  ['visibility', 'Alternative visibility sensor'],
+].map(([name, label]) => field(name, label, { entity: { domain: 'sensor' } }, undefined));
+
+const PAGES = [['card', 'Main'], ['forecast', 'Forecast'], ['layout', 'Layout'], ['units', 'Units'], ['sizes', 'Sizes'], ['alternate', 'Alternate entities']];
 
 class WeatherChartCardEditor extends s {
   static get properties() {
-    return {
-      _config: { type: Object },
-      currentPage: { type: String },
-      entities: { type: Array },
-      hass: { type: Object },
-      _entity: { type: String },
-    };
+    return { _config: { type: Object }, currentPage: { type: String }, hass: { type: Object } };
   }
 
   constructor() {
     super();
     this.currentPage = 'card';
-    this._entity = '';
-    this.entities = [];
-    this._formValueChanged = this._formValueChanged.bind(this);
   }
 
   setConfig(config) {
-    if (!config) {
-      throw new Error("Invalid configuration");
-    }
+    if (!config || typeof config !== 'object') throw new Error('Invalid card configuration');
     this._config = config;
-    this._entity = config.entity || '';
-    this.hasApparentTemperature = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.apparent_temperature !== undefined
-    ) || config.feels_like !== undefined;
-    this.hasDewpoint = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.dew_point !== undefined
-    ) || config.dew_point !== undefined;
-    this.hasWindgustspeed = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.wind_gust_speed !== undefined
-    ) || config.wind_gust_speed !== undefined;
-    this.hasVisibility = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.visibility !== undefined
-    ) || config.visibility !== undefined;
-    this.hasDescription = (
-      this.hass &&
-      this.hass.states[config.entity] &&
-      this.hass.states[config.entity].attributes &&
-      this.hass.states[config.entity].attributes.description !== undefined
-    ) || config.description !== undefined;
-    this.fetchEntities();	  
-    this.requestUpdate();
   }
 
-  get config() {
-    return this._config;
+  get config() { return this._config; }
+
+  configChanged(config) {
+    this._config = config;
+    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
   }
 
-  updated(changedProperties) {
-    if (changedProperties.has('hass')) {
-      this.fetchEntities();
+  showPage(page) { this.currentPage = page; }
+
+  _data(fields, source) {
+    return Object.fromEntries(fields.map(field => {
+      let value = source[field.name];
+      if (value === undefined || value === null) value = field.defaultValue;
+      if (field.selector.number && value !== undefined && value !== '') value = Number(value);
+      if (field.selector.select && value === '' && field.selector.select.options.some(option => option.value === 'auto')) value = 'auto';
+      if (field.name === 'speed' && value === 'Beaufort') value = 'Bft';
+      return [field.name, value];
+    }));
+  }
+
+  _sectionChanged(event, fields, scope) {
+    const config = { ...this._config };
+    const target = scope ? { ...config[scope] } : config;
+    const data = event.detail.value;
+    for (const field of fields) {
+      if (!Object.prototype.hasOwnProperty.call(data, field.name)) continue;
+      const value = data[field.name];
+      if (scope === 'units' && value === 'auto') target[field.name] = '';
+      else if (value === undefined || value === null || value === '' || (field.name === 'locale' && value === 'auto')) delete target[field.name];
+      else target[field.name] = field.selector.number ? Number(value) : value;
     }
-    if (changedProperties.has('_config') && this._config && this._config.entity) {
-      this._entity = this._config.entity;
+    if (scope) config[scope] = target;
+    // A GUI unit choice replaces, rather than conflicts with, the legacy alias.
+    if (scope === 'units') delete config.speed;
+    this.configChanged(config);
+  }
+
+  _layoutChanged(event) {
+    const data = event.detail.value;
+    const forecast = { ...this._config.forecast };
+    for (const field of LAYOUT_FIELDS) {
+      if (field.name !== 'padding_scale') forecast[field.name] = data[field.name] === undefined ? field.defaultValue : data[field.name];
     }
+    this.configChanged({ ...this._config, forecast, padding_scale: data.padding_scale === undefined ? 0.7 : Number(data.padding_scale) });
   }
 
-  fetchEntities() {
-    if (this.hass) {
-      this.entities = Object.keys(this.hass.states).filter((e) => e.startsWith('weather.'));
-      this.requestUpdate();
-    }
+  _sizeOffsetsChanged(event) {
+    const values = Object.fromEntries(Object.entries(event.detail.value).map(([key, value]) => [key, value === undefined || value === null || value === '' ? 0 : Number(value)]));
+    if (Object.values(values).some(value => !Number.isFinite(value))) return;
+    this.configChanged({ ...this._config, size_offsets: normaliseSizeOffsets({ ...this._config.size_offsets, ...values }) });
   }
 
-  _EntityChanged(event, key) {
-    if (!this._config) {
-      return;
-    }
-    const newConfig = { ...this._config };
-    newConfig.entity = event.target.value;
-    this._entity = event.target.value;
-    this.configChanged(newConfig);
+  _schema(fields) {
+    return fields.map(({ name, label, selector, required }) => ({ name, label, selector, required }));
   }
 
-  configChanged(newConfig) {
-    const event = new Event("config-changed", {
-      bubbles: true,
-      composed: true,
-    });
-    event.detail = { config: newConfig };
-    this.dispatchEvent(event);
-  }
-
-  _valueChanged(event, key) {
-    if (!this._config) {
-      return;
-    }
-
-    let newConfig = { ...this._config };
-
-    if (key.includes('.')) {
-      const parts = key.split('.');
-      let currentLevel = newConfig;
-
-      for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i];
-
-        currentLevel[part] = { ...currentLevel[part] };
-
-        currentLevel = currentLevel[part];
-      }
-
-      const finalKey = parts[parts.length - 1];
-      if (event.target.checked !== undefined) {
-        currentLevel[finalKey] = event.target.checked;
-      } else {
-        currentLevel[finalKey] = event.target.value;
-      }
-    } else {
-      if (event.target.checked !== undefined) {
-        newConfig[key] = event.target.checked;
-      } else {
-        newConfig[key] = event.target.value;
-      }
-    }
-
-    this.configChanged(newConfig);
-    this.requestUpdate();
-  }
-
-  _handleStyleChange(event) {
-    if (!this._config) {
-      return;
-    }
-    const newConfig = JSON.parse(JSON.stringify(this._config));
-    newConfig.forecast.style = event.target.value;
-    this.configChanged(newConfig);
-    this.requestUpdate();
-  }
-
-  _handleTypeChange(event) {
-    if (!this._config) {
-      return;
-    }
-    const newConfig = JSON.parse(JSON.stringify(this._config));
-    newConfig.forecast.type = event.target.value;
-    this.configChanged(newConfig);
-    this.requestUpdate();
-  }
-
-  _handleIconStyleChange(event) {
-    if (!this._config) {
-      return;
-    }
-    const newConfig = JSON.parse(JSON.stringify(this._config));
-    newConfig.icon_style = event.target.value;
-    this.configChanged(newConfig);
-    this.requestUpdate();
-  }
-
-  _handlePrecipitationTypeChange(e) {
-    const newValue = e.target.value;
-    this.config.forecast.precipitation_type = newValue;
-  }
-
-  _formValueChanged(event) {
-    if (event.target.tagName.toLowerCase() === 'ha-form') {
-      const newConfig = event.detail.value;
-      this.configChanged(newConfig);
-      this.requestUpdate();
-    }
-  }
-
-  showPage(pageName) {
-    this.currentPage = pageName;
-    this.requestUpdate();
+  _form(fields, id, scope) {
+    let source = scope ? this._config[scope] || {} : this._config;
+    if (scope === 'units' && source.speed === undefined && this._config.speed) source = { ...source, speed: this._config.speed };
+    return x`<ha-form
+      data-editor-section=${id}
+      .hass=${this.hass}
+      .data=${this._data(fields, source)}
+      .schema=${this._schema(fields)}
+      .computeLabel=${schema => schema.label || schema.name}
+      @value-changed=${event => this._sectionChanged(event, fields, scope)}
+    ></ha-form>`;
   }
 
   render() {
-    if (this._config && this._config.entity !== this._entity) {
-      this._entity = this._config.entity;
-    }
-    const forecastConfig = this._config.forecast || {};
-    const unitsConfig = this._config.units || {};
-    this._config.show_time !== false;
-
-
+    if (!this._config) return x``;
+    const forecast = this._config.forecast || {};
     return x`
       <style>
-        .switch-label {
-          padding-left: 14px;
-        }
-        .switch-container {
-          margin-bottom: 12px;
-        }
-        .page-container {
-	  display: none;
-        }
-        .page-container.active {
-          display: block;
-        }
-        .time-container {
-          display: flex;
-          flex-direction: row;
-          margin-bottom: 12px;
-        }
-        .icon-container {
-          display: flex;
-          flex-direction: row;
-          margin-bottom: 12px;
-        }
-        .switch-right {
-          display: flex;
-          flex-direction: row;
-          align-items: center;
-        }
-        .checkbox-container {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .textfield-container {
-          display: flex;
-          flex-direction: column;
-          margin-bottom: 10px;
-	  gap: 20px;
-        }
-        .radio-container {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .radio-group {
-          display: flex;
-          align-items: center;
-        }
-        .radio-group label {
-          margin-left: 4px;
-        }
-	div.buttons-container {
-          border-bottom: 2px solid #ccc;
-          padding-bottom: 10px;
-          margin-bottom: 20px;
-        }
-        .flex-container {
-          display: flex;
-          flex-direction: row;
-          gap: 20px;
-        }
-        .flex-container ha-textfield {
-          flex-basis: 50%;
-          flex-grow: 1;
-        }
+        :host { display: block; }
+        .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+        .tabs .active { outline: 2px solid var(--primary-color); border-radius: 8px; }
+        .page { display: none; }
+        .page.active { display: block; }
+        details { margin: 12px 0; }
+        summary { cursor: pointer; font-weight: 500; padding: 8px 0; }
+        p { color: var(--secondary-text-color); line-height: 1.5; }
       </style>
-      <div>
-      <div class="textfield-container">
-<ha-select
-  naturalMenuWidth
-  fixedMenuPosition
-  label="Entity"
-  .configValue=${'entity'}
-  .value=${this._entity}
-  @change=${(e) => this._EntityChanged(e, 'entity')}
-  @closed=${(ev) => ev.stopPropagation()}
->
-  ${this.entities.map((entity) => x`<ha-list-item .value=${entity}>${entity}</ha-list-item>`)}
-</ha-select>
-      <ha-textfield
-        label="Title"
-        .value="${this._config.title || ''}"
-        @change="${(e) => this._valueChanged(e, 'title')}"
-      ></ha-textfield>
-       </div>
-
-      <h5>Forecast type:</h5>
-
-      <div class="radio-group">
-        <ha-radio
-          name="type"
-          value="daily"
-          @change="${this._handleTypeChange}"
-          .checked="${forecastConfig.type === 'daily'}"
-        ></ha-radio>
-        <label class="check-label">
-          Daily forecast
-        </label>
+      <nav class="tabs" aria-label="Weather card configuration">
+        ${PAGES.map(([id, title]) => x`<ha-button class=${this.currentPage === id ? 'active' : ''} aria-pressed=${this.currentPage === id ? 'true' : 'false'} @click=${() => this.showPage(id)}>${title}</ha-button>`)}
+      </nav>
+      <div class="page ${this.currentPage === 'card' ? 'active' : ''}">
+        <p>Choose the weather entity and current conditions to display. Optional attributes appear only when the entity or an alternate sensor provides them.</p>
+        ${this._form(MAIN_FIELDS, 'card')}
       </div>
-
-      <div class="radio-group">
-        <ha-radio
-          name="type"
-          value="hourly"
-          @change="${this._handleTypeChange}"
-          .checked="${forecastConfig.type === 'hourly'}"
-        ></ha-radio>
-        <label class="check-label">
-          Hourly forecast
-        </label>
+      <div class="page ${this.currentPage === 'forecast' ? 'active' : ''}">
+        <p>The provider must supply the selected forecast type. The point count limits supplied data; it does not request additional days.</p>
+        ${this._form(FORECAST_FIELDS, 'forecast', 'forecast')}
       </div>
-
-      <h5>Chart style:</h5>
-      <div class="radio-container">
-        <div class="switch-right">
-          <ha-radio
-            name="style"
-            value="style1"
-            @change="${this._handleStyleChange}"
-            .checked="${forecastConfig.style === 'style1'}"
-          ></ha-radio>
-          <label class="check-label">
-            Chart style 1
-          </label>
-        </div>
-
-        <div class="switch-right">
-          <ha-radio
-            name="style"
-            value="style2"
-            @change="${this._handleStyleChange}"
-            .checked="${forecastConfig.style === 'style2'}"
-          ></ha-radio>
-          <label class="check-label">
-            Chart style 2
-          </label>
-        </div>
+      <div class="page ${this.currentPage === 'layout' ? 'active' : ''}">
+        <p>Control unit placement, forecast label weight and spacing. Select the common wind unit under Units.</p>
+        <ha-form
+          data-detail-layout data-editor-section="layout"
+          .hass=${this.hass}
+          .data=${this._data(LAYOUT_FIELDS, { ...forecast, padding_scale: this._config.padding_scale })}
+          .schema=${this._schema(LAYOUT_FIELDS)}
+          .computeLabel=${schema => schema.label}
+          @value-changed=${this._layoutChanged}
+        ></ha-form>
       </div>
-
-        <!-- Buttons to switch between pages -->
-       <h4>Settings:</h4>
-       <div class="buttons-container">
-         <mwc-button @click="${() => this.showPage('card')}">Main</mwc-button>
-         <mwc-button @click="${() => this.showPage('forecast')}">Forecast</mwc-button>
-         <mwc-button @click="${() => this.showPage('units')}">Units</mwc-button>
-         <mwc-button @click="${() => this.showPage('alternate')}">Alternate entities</mwc-button>
-       </div>
-
-        <!-- Card Settings Page -->
-        <div class="page-container ${this.currentPage === 'card' ? 'active' : ''}">
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_main')}"
-              .checked="${this._config.show_main !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Main
-            </label>
-          </div>
-      <div class="switch-container">
-        ${this.hasApparentTemperature ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_feels_like')}"
-            .checked="${this._config.show_feels_like !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Feels Like Temperature
-          </label>
-        ` : ''}
+      <div class="page ${this.currentPage === 'units' ? 'active' : ''}">
+        <p>Wind units apply to current speed, gusts and all forecast indicators. Temperature follows the weather entity's display unit.</p>
+        ${this._form(UNIT_FIELDS, 'units', 'units')}
       </div>
-      <div class="switch-container">
-        ${this.hasDescription ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_description')}"
-            .checked="${this._config.show_description !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Weather Description
-          </label>
-        ` : ''}
-      </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_temperature')}"
-              .checked="${this._config.show_temperature !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Current Temperature
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_current_condition')}"
-              .checked="${this._config.show_current_condition !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Current Weather Condition
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_attributes')}"
-              .checked="${this._config.show_attributes !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Attributes
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_humidity')}"
-              .checked="${this._config.show_humidity !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Humidity
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_pressure')}"
-              .checked="${this._config.show_pressure !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Pressure
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_sun')}"
-              .checked="${this._config.show_sun !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Sun
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_wind_direction')}"
-              .checked="${this._config.show_wind_direction !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Wind Direction
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_wind_speed')}"
-              .checked="${this._config.show_wind_speed !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Wind Speed
-            </label>
-	  </div>
-      <div class="switch-container">
-        ${this.hasDewpoint ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_dew_point')}"
-            .checked="${this._config.show_dew_point !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Dew Point
-          </label>
-        ` : ''}
-      </div>
-      <div class="switch-container">
-        ${this.hasWindgustspeed ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_wind_gust_speed')}"
-            .checked="${this._config.show_wind_gust_speed !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Wind Gust Speed
-          </label>
-        ` : ''}
-      </div>
-      <div class="switch-container">
-        ${this.hasVisibility ? x`
-          <ha-switch
-            @change="${(e) => this._valueChanged(e, 'show_visibility')}"
-            .checked="${this._config.show_visibility !== false}"
-          ></ha-switch>
-          <label class="switch-label">
-            Show Visibility
-          </label>
-        ` : ''}
-      </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'show_last_changed')}"
-              .checked="${this._config.show_last_changed !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show when last data changed
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'use_12hour_format')}"
-              .checked="${this._config.use_12hour_format !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Use 12-Hour Format
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'autoscroll')}"
-              .checked="${this._config.autoscroll !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Autoscroll
-            </label>
-          </div>
-          <div class="time-container">
-            <div class="switch-right">
-              <ha-switch
-                @change="${(e) => this._valueChanged(e, 'show_time')}"
-                .checked="${this._config.show_time !== false}"
-              ></ha-switch>
-              <label class="switch-label">
-                Show Current Time
-              </label>
-            </div>
-            <div class="switch-right checkbox-container" style="${this._config.show_time ? 'display: flex;' : 'display: none;'}">
-              <ha-checkbox
-                @change="${(e) => this._valueChanged(e, 'show_time_seconds')}"
-                .checked="${this._config.show_time_seconds !== false}"
-              ></ha-checkbox>
-              <label class="check-label">
-                Show Seconds
-              </label>
-            </div>
-            <div class="switch-right checkbox-container" style="${this._config.show_time ? 'display: flex;' : 'display: none;'}">
-              <ha-checkbox
-                @change="${(e) => this._valueChanged(e, 'show_day')}"
-                .checked="${this._config.show_day !== false}"
-              ></ha-checkbox>
-              <label class="check-label">
-                Show Day
-              </label>
-            </div>
-            <div class="switch-right checkbox-container" style="${this._config.show_time ? 'display: flex;' : 'display: none;'}">
-              <ha-checkbox
-                @change="${(e) => this._valueChanged(e, 'show_date')}"
-                .checked="${this._config.show_date !== false}"
-              ></ha-checkbox>
-              <label class="check-label">
-                Show Date
-              </label>
-            </div>
-          </div>
-            <div class="flex-container" style="${this._config.show_time ? 'display: flex;' : 'display: none;'}">
-              <ha-textfield
-                label="Time text size"
-                type="number"
-                .value="${this._config.time_size || '26'}"
-                @change="${(e) => this._valueChanged(e, 'time_size')}"
-              ></ha-textfield>
-              <ha-textfield
-                label="Day and date text size"
-                type="number"
-                .value="${this._config.day_date_size || '15'}"
-                @change="${(e) => this._valueChanged(e, 'day_date_size')}"
-              ></ha-textfield>
-              </div>
-            <div class="icon-container">
-              <div class="switch-right">
-                <ha-switch
-                  @change="${(e) => this._valueChanged(e, 'animated_icons')}"
-                  .checked="${this._config.animated_icons === true}"
-                ></ha-switch>
-                <label class="switch-label">
-                  Use Animated Icons
-                </label>
-              </div>
-              <div class="switch-right radio-container" style="${this._config.animated_icons ? 'display: flex;' : 'display: none;'}">
-                  <ha-radio
-                    name="icon_style"
-                    value="style1"
-                    @change="${this._handleIconStyleChange}"
-                    .checked="${this._config.icon_style === 'style1'}"
-                  ></ha-radio>
-                  <label class="check-label">
-                    Style 1
-                  </label>
-                </div>
-              <div class="switch-right radio-container" style="${this._config.animated_icons ? 'display: flex;' : 'display: none;'}">
-                  <ha-radio
-                    name="icon_style"
-                    value="style2"
-                    @change="${this._handleIconStyleChange}"
-                    .checked="${this._config.icon_style === 'style2'}"
-                  ></ha-radio>
-                  <label class="check-label">
-                    Style 2
-                  </label>
-                </div>
-              </div>
-       <div class="textfield-container">
-         <ha-textfield
-           label="Icon Size for animated or custom icons"
-           type="number"
-           .value="${this._config.icons_size || '25'}"
-           @change="${(e) => this._valueChanged(e, 'icons_size')}"
-         ></ha-textfield>
-          <ha-textfield
-            label="Curent temperature Font Size"
-           type="number"
-            .value="${this._config.current_temp_size || '28'}"
-            @change="${(e) => this._valueChanged(e, 'current_temp_size')}"
-          ></ha-textfield>
-        <ha-textfield
-          label="Custom icon path"
-          .value="${this._config.icons || ''}"
-          @change="${(e) => this._valueChanged(e, 'icons')}"
-        ></ha-textfield>
-         <ha-select
-           naturalMenuWidth
-           fixedMenuPosition
-           label="Select custom language"
-           .configValue=${''}
-           .value=${this._config.locale}
-           @change=${(e) => this._valueChanged(e, 'locale')}
-           @closed=${(ev) => ev.stopPropagation()}
-         >
-           <ha-list-item .value=${''}>HA Default</ha-list-item>
-           <ha-list-item .value=${'bg'}>Bulgarian</ha-list-item>
-           <ha-list-item .value=${'ca'}>Catalan</ha-list-item>
-           <ha-list-item .value=${'cs'}>Czech</ha-list-item>
-           <ha-list-item .value=${'da'}>Danish</ha-list-item>
-           <ha-list-item .value=${'nl'}>Dutch</ha-list-item>
-           <ha-list-item .value=${'en'}>English</ha-list-item>
-           <ha-list-item .value=${'fi'}>Finnish</ha-list-item>
-           <ha-list-item .value=${'fr'}>French</ha-list-item>
-           <ha-list-item .value=${'de'}>German</ha-list-item>
-           <ha-list-item .value=${'el'}>Greek</ha-list-item>
-           <ha-list-item .value=${'hu'}>Hungarian</ha-list-item>
-           <ha-list-item .value=${'it'}>Italian</ha-list-item>
-           <ha-list-item .value=${'lt'}>Lithuanian</ha-list-item>
-           <ha-list-item .value=${'no'}>Norwegian</ha-list-item>
-           <ha-list-item .value=${'pl'}>Polish</ha-list-item>
-           <ha-list-item .value=${'pt'}>Portuguese</ha-list-item>
-           <ha-list-item .value=${'ro'}>Romanian</ha-list-item>
-           <ha-list-item .value=${'ru'}>Russian</ha-list-item>
-           <ha-list-item .value=${'sk'}>Slovak</ha-list-item>
-           <ha-list-item .value=${'es'}>Spanish</ha-list-item>
-           <ha-list-item .value=${'sv'}>Swedish</ha-list-item>
-	   <ha-list-item .value=${'uk'}>Ukrainian</ha-list-item>
-    	   <ha-list-item .value=${'ko'}>한국어</ha-list-item>
-        </ha-select>
-        </div>
-      </div>
-
-        <!-- Forecast Settings Page -->
-        <div class="page-container ${this.currentPage === 'forecast' ? 'active' : ''}">
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'forecast.condition_icons')}"
-              .checked="${forecastConfig.condition_icons !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Condition Icons
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'forecast.show_wind_forecast')}"
-              .checked="${forecastConfig.show_wind_forecast !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Show Wind Forecast
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'forecast.round_temp')}"
-              .checked="${forecastConfig.round_temp !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Rounding Temperatures
-            </label>
-          </div>
-          <div class="switch-container">
-            <ha-switch
-              @change="${(e) => this._valueChanged(e, 'forecast.disable_animation')}"
-              .checked="${forecastConfig.disable_animation !== false}"
-            ></ha-switch>
-            <label class="switch-label">
-              Disable Chart Animation
-            </label>
-          </div>
-	  <div class="textfield-container">
-          <ha-select
-            naturalMenuWidth
-            fixedMenuPosition
-            label="Precipitation Type (Probability if supported by the weather entity)"
-            .configValue=${'forecast.precipitation_type'}
-            .value=${forecastConfig.precipitation_type}
-            @change=${(e) => this._valueChanged(e, 'forecast.precipitation_type')}
-            @closed=${(ev) => ev.stopPropagation()}
-          >
-            <ha-list-item .value=${'rainfall'}>Rainfall</ha-list-item>
-            <ha-list-item .value=${'probability'}>Probability</ha-list-item>
-          </ha-select>
-         <div class="switch-container" ?hidden=${forecastConfig.precipitation_type !== 'rainfall'}>
-             <ha-switch
-               @change="${(e) => this._valueChanged(e, 'forecast.show_probability')}"
-               .checked="${forecastConfig.show_probability !== false}"
-             ></ha-switch>
-             <label class="switch-label">
-               Show precipitation probability
-             </label>
-         </div>
-          <div class="textfield-container">
-            <div class="flex-container">
-              <ha-textfield
-                label="Precipitation Bar Size %"
-                type="number"
-                max="100"
-                min="0"
-                .value="${forecastConfig.precip_bar_size || '100'}"
-                @change="${(e) => this._valueChanged(e, 'forecast.precip_bar_size')}"
-              ></ha-textfield>
-              <ha-textfield
-                label="Labels Font Size"
-                type="number"
-                .value="${forecastConfig.labels_font_size || '11'}"
-                @change="${(e) => this._valueChanged(e, 'forecast.labels_font_size')}"
-              ></ha-textfield>
-              </div>
-	    <div class="flex-container">
-              <ha-textfield
-                label="Chart height"
-                type="number"
-                .value="${forecastConfig.chart_height || '180'}"
-                @change="${(e) => this._valueChanged(e, 'forecast.chart_height')}"
-              ></ha-textfield>
-              <ha-textfield
-                label="Number of forecasts"
-                type="number"
-                .value="${forecastConfig.number_of_forecasts || '0'}"
-                @change="${(e) => this._valueChanged(e, 'forecast.number_of_forecasts')}"
-              ></ha-textfield>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Units Page -->
-        <div class="page-container ${this.currentPage === 'units' ? 'active' : ''}">
-          <div class="textfield-container">
-            <ha-select
-              naturalMenuWidth
-              fixedMenuPosition
-              label="Convert pressure to"
-              .configValue=${'units.pressure'}
-              .value=${unitsConfig.pressure}
-              @change=${(e) => this._valueChanged(e, 'units.pressure')}
-              @closed=${(ev) => ev.stopPropagation()}
-            >
-              <ha-list-item .value=${'hPa'}>hPa</ha-list-item>
-              <ha-list-item .value=${'mmHg'}>mmHg</ha-list-item>
-              <ha-list-item .value=${'inHg'}>inHg</ha-list-item>
-            </ha-select>
-            <ha-select
-              naturalMenuWidth
-              fixedMenuPosition
-              label="Convert wind speed to"
-              .configValue=${'units.speed'}
-              .value=${unitsConfig.speed}
-              @change=${(e) => this._valueChanged(e, 'units.speed')}
-              @closed=${(ev) => ev.stopPropagation()}
-            >
-              <ha-list-item .value=${'km/h'}>km/h</ha-list-item>
-              <ha-list-item .value=${'m/s'}>m/s</ha-list-item>
-              <ha-list-item .value=${'Bft'}>Bft</ha-list-item>
-              <ha-list-item .value=${'mph'}>mph</ha-list-item>
-            </ha-select>
-          </div>
-        </div>
-
-        <!-- Alternate Page -->
-        <div class="page-container ${this.currentPage === 'alternate' ? 'active' : ''}">
-          <h5>Alternative sensors for the main card attributes:</h5>
+      <div class="page ${this.currentPage === 'sizes' ? 'active' : ''}">
+        <p>Signed CSS-pixel adjustments: 0 keeps the baseline, +2 adds 2 px, -2 subtracts 2 px. Final sizes have a 1 px floor. Existing absolute size settings remain the baseline.</p>
+        ${SIZE_GROUPS.map(group => x`<details><summary>${group.title}</summary>
           <ha-form
-            .data=${this._config}
-            .schema=${ALT_SCHEMA}
+            data-size-group=${group.title}
             .hass=${this.hass}
-            @value-changed=${this._formValueChanged}
+            .data=${Object.fromEntries(group.fields.map(field => [field.key, (this._config.size_offsets || {})[field.key] || 0]))}
+            .schema=${group.fields.map(field => ({ name: field.key, label: `${field.label} (+/- px)`, selector: { number: { mode: 'box', step: 1 } } }))}
+            .computeLabel=${schema => schema.label}
+            @value-changed=${this._sizeOffsetsChanged}
           ></ha-form>
-        </div>
+        </details>`)}
+      </div>
+      <div class="page ${this.currentPage === 'alternate' ? 'active' : ''}">
+        <p>Clear a sensor to use weather-entity data. Unavailable configured sensors do not silently substitute a different reading. Supply numeric sensor states with unit metadata.</p>
+        ${this._form(ALTERNATE_FIELDS, 'alternate')}
+      </div>
     `;
   }
 }
-customElements.define("weather-chart-card-editor", WeatherChartCardEditor);
+customElements.define('weather-chart-card-editor', WeatherChartCardEditor);
 
 /**
  * @license
@@ -1675,9 +1218,9 @@ customElements.define("weather-chart-card-editor", WeatherChartCardEditor);
  */var n;null!=(null===(n=window.HTMLSlotElement)||void 0===n?void 0:n.prototype.assignedElements)?(o,n)=>o.assignedElements(n):(o,n)=>o.assignedNodes(n).filter((o=>o.nodeType===Node.ELEMENT_NODE));
 
 /*!
- * @kurkle/color v0.3.2
+ * @kurkle/color v0.3.4
  * https://github.com/kurkle/color#readme
- * (c) 2023 Jukka Kurkela
+ * (c) 2024 Jukka Kurkela
  * Released under the MIT License
  */
 function round(v) {
@@ -1851,183 +1394,183 @@ function hslString(v) {
 }
 
 const map$2 = {
-  x: 'dark',
-  Z: 'light',
-  Y: 're',
-  X: 'blu',
-  W: 'gr',
-  V: 'medium',
-  U: 'slate',
-  A: 'ee',
-  T: 'ol',
-  S: 'or',
-  B: 'ra',
-  C: 'lateg',
-  D: 'ights',
-  R: 'in',
-  Q: 'turquois',
-  E: 'hi',
-  P: 'ro',
-  O: 'al',
-  N: 'le',
-  M: 'de',
-  L: 'yello',
-  F: 'en',
-  K: 'ch',
-  G: 'arks',
-  H: 'ea',
-  I: 'ightg',
-  J: 'wh'
+	x: 'dark',
+	Z: 'light',
+	Y: 're',
+	X: 'blu',
+	W: 'gr',
+	V: 'medium',
+	U: 'slate',
+	A: 'ee',
+	T: 'ol',
+	S: 'or',
+	B: 'ra',
+	C: 'lateg',
+	D: 'ights',
+	R: 'in',
+	Q: 'turquois',
+	E: 'hi',
+	P: 'ro',
+	O: 'al',
+	N: 'le',
+	M: 'de',
+	L: 'yello',
+	F: 'en',
+	K: 'ch',
+	G: 'arks',
+	H: 'ea',
+	I: 'ightg',
+	J: 'wh'
 };
 const names$1 = {
-  OiceXe: 'f0f8ff',
-  antiquewEte: 'faebd7',
-  aqua: 'ffff',
-  aquamarRe: '7fffd4',
-  azuY: 'f0ffff',
-  beige: 'f5f5dc',
-  bisque: 'ffe4c4',
-  black: '0',
-  blanKedOmond: 'ffebcd',
-  Xe: 'ff',
-  XeviTet: '8a2be2',
-  bPwn: 'a52a2a',
-  burlywood: 'deb887',
-  caMtXe: '5f9ea0',
-  KartYuse: '7fff00',
-  KocTate: 'd2691e',
-  cSO: 'ff7f50',
-  cSnflowerXe: '6495ed',
-  cSnsilk: 'fff8dc',
-  crimson: 'dc143c',
-  cyan: 'ffff',
-  xXe: '8b',
-  xcyan: '8b8b',
-  xgTMnPd: 'b8860b',
-  xWay: 'a9a9a9',
-  xgYF: '6400',
-  xgYy: 'a9a9a9',
-  xkhaki: 'bdb76b',
-  xmagFta: '8b008b',
-  xTivegYF: '556b2f',
-  xSange: 'ff8c00',
-  xScEd: '9932cc',
-  xYd: '8b0000',
-  xsOmon: 'e9967a',
-  xsHgYF: '8fbc8f',
-  xUXe: '483d8b',
-  xUWay: '2f4f4f',
-  xUgYy: '2f4f4f',
-  xQe: 'ced1',
-  xviTet: '9400d3',
-  dAppRk: 'ff1493',
-  dApskyXe: 'bfff',
-  dimWay: '696969',
-  dimgYy: '696969',
-  dodgerXe: '1e90ff',
-  fiYbrick: 'b22222',
-  flSOwEte: 'fffaf0',
-  foYstWAn: '228b22',
-  fuKsia: 'ff00ff',
-  gaRsbSo: 'dcdcdc',
-  ghostwEte: 'f8f8ff',
-  gTd: 'ffd700',
-  gTMnPd: 'daa520',
-  Way: '808080',
-  gYF: '8000',
-  gYFLw: 'adff2f',
-  gYy: '808080',
-  honeyMw: 'f0fff0',
-  hotpRk: 'ff69b4',
-  RdianYd: 'cd5c5c',
-  Rdigo: '4b0082',
-  ivSy: 'fffff0',
-  khaki: 'f0e68c',
-  lavFMr: 'e6e6fa',
-  lavFMrXsh: 'fff0f5',
-  lawngYF: '7cfc00',
-  NmoncEffon: 'fffacd',
-  ZXe: 'add8e6',
-  ZcSO: 'f08080',
-  Zcyan: 'e0ffff',
-  ZgTMnPdLw: 'fafad2',
-  ZWay: 'd3d3d3',
-  ZgYF: '90ee90',
-  ZgYy: 'd3d3d3',
-  ZpRk: 'ffb6c1',
-  ZsOmon: 'ffa07a',
-  ZsHgYF: '20b2aa',
-  ZskyXe: '87cefa',
-  ZUWay: '778899',
-  ZUgYy: '778899',
-  ZstAlXe: 'b0c4de',
-  ZLw: 'ffffe0',
-  lime: 'ff00',
-  limegYF: '32cd32',
-  lRF: 'faf0e6',
-  magFta: 'ff00ff',
-  maPon: '800000',
-  VaquamarRe: '66cdaa',
-  VXe: 'cd',
-  VScEd: 'ba55d3',
-  VpurpN: '9370db',
-  VsHgYF: '3cb371',
-  VUXe: '7b68ee',
-  VsprRggYF: 'fa9a',
-  VQe: '48d1cc',
-  VviTetYd: 'c71585',
-  midnightXe: '191970',
-  mRtcYam: 'f5fffa',
-  mistyPse: 'ffe4e1',
-  moccasR: 'ffe4b5',
-  navajowEte: 'ffdead',
-  navy: '80',
-  Tdlace: 'fdf5e6',
-  Tive: '808000',
-  TivedBb: '6b8e23',
-  Sange: 'ffa500',
-  SangeYd: 'ff4500',
-  ScEd: 'da70d6',
-  pOegTMnPd: 'eee8aa',
-  pOegYF: '98fb98',
-  pOeQe: 'afeeee',
-  pOeviTetYd: 'db7093',
-  papayawEp: 'ffefd5',
-  pHKpuff: 'ffdab9',
-  peru: 'cd853f',
-  pRk: 'ffc0cb',
-  plum: 'dda0dd',
-  powMrXe: 'b0e0e6',
-  purpN: '800080',
-  YbeccapurpN: '663399',
-  Yd: 'ff0000',
-  Psybrown: 'bc8f8f',
-  PyOXe: '4169e1',
-  saddNbPwn: '8b4513',
-  sOmon: 'fa8072',
-  sandybPwn: 'f4a460',
-  sHgYF: '2e8b57',
-  sHshell: 'fff5ee',
-  siFna: 'a0522d',
-  silver: 'c0c0c0',
-  skyXe: '87ceeb',
-  UXe: '6a5acd',
-  UWay: '708090',
-  UgYy: '708090',
-  snow: 'fffafa',
-  sprRggYF: 'ff7f',
-  stAlXe: '4682b4',
-  tan: 'd2b48c',
-  teO: '8080',
-  tEstN: 'd8bfd8',
-  tomato: 'ff6347',
-  Qe: '40e0d0',
-  viTet: 'ee82ee',
-  JHt: 'f5deb3',
-  wEte: 'ffffff',
-  wEtesmoke: 'f5f5f5',
-  Lw: 'ffff00',
-  LwgYF: '9acd32'
+	OiceXe: 'f0f8ff',
+	antiquewEte: 'faebd7',
+	aqua: 'ffff',
+	aquamarRe: '7fffd4',
+	azuY: 'f0ffff',
+	beige: 'f5f5dc',
+	bisque: 'ffe4c4',
+	black: '0',
+	blanKedOmond: 'ffebcd',
+	Xe: 'ff',
+	XeviTet: '8a2be2',
+	bPwn: 'a52a2a',
+	burlywood: 'deb887',
+	caMtXe: '5f9ea0',
+	KartYuse: '7fff00',
+	KocTate: 'd2691e',
+	cSO: 'ff7f50',
+	cSnflowerXe: '6495ed',
+	cSnsilk: 'fff8dc',
+	crimson: 'dc143c',
+	cyan: 'ffff',
+	xXe: '8b',
+	xcyan: '8b8b',
+	xgTMnPd: 'b8860b',
+	xWay: 'a9a9a9',
+	xgYF: '6400',
+	xgYy: 'a9a9a9',
+	xkhaki: 'bdb76b',
+	xmagFta: '8b008b',
+	xTivegYF: '556b2f',
+	xSange: 'ff8c00',
+	xScEd: '9932cc',
+	xYd: '8b0000',
+	xsOmon: 'e9967a',
+	xsHgYF: '8fbc8f',
+	xUXe: '483d8b',
+	xUWay: '2f4f4f',
+	xUgYy: '2f4f4f',
+	xQe: 'ced1',
+	xviTet: '9400d3',
+	dAppRk: 'ff1493',
+	dApskyXe: 'bfff',
+	dimWay: '696969',
+	dimgYy: '696969',
+	dodgerXe: '1e90ff',
+	fiYbrick: 'b22222',
+	flSOwEte: 'fffaf0',
+	foYstWAn: '228b22',
+	fuKsia: 'ff00ff',
+	gaRsbSo: 'dcdcdc',
+	ghostwEte: 'f8f8ff',
+	gTd: 'ffd700',
+	gTMnPd: 'daa520',
+	Way: '808080',
+	gYF: '8000',
+	gYFLw: 'adff2f',
+	gYy: '808080',
+	honeyMw: 'f0fff0',
+	hotpRk: 'ff69b4',
+	RdianYd: 'cd5c5c',
+	Rdigo: '4b0082',
+	ivSy: 'fffff0',
+	khaki: 'f0e68c',
+	lavFMr: 'e6e6fa',
+	lavFMrXsh: 'fff0f5',
+	lawngYF: '7cfc00',
+	NmoncEffon: 'fffacd',
+	ZXe: 'add8e6',
+	ZcSO: 'f08080',
+	Zcyan: 'e0ffff',
+	ZgTMnPdLw: 'fafad2',
+	ZWay: 'd3d3d3',
+	ZgYF: '90ee90',
+	ZgYy: 'd3d3d3',
+	ZpRk: 'ffb6c1',
+	ZsOmon: 'ffa07a',
+	ZsHgYF: '20b2aa',
+	ZskyXe: '87cefa',
+	ZUWay: '778899',
+	ZUgYy: '778899',
+	ZstAlXe: 'b0c4de',
+	ZLw: 'ffffe0',
+	lime: 'ff00',
+	limegYF: '32cd32',
+	lRF: 'faf0e6',
+	magFta: 'ff00ff',
+	maPon: '800000',
+	VaquamarRe: '66cdaa',
+	VXe: 'cd',
+	VScEd: 'ba55d3',
+	VpurpN: '9370db',
+	VsHgYF: '3cb371',
+	VUXe: '7b68ee',
+	VsprRggYF: 'fa9a',
+	VQe: '48d1cc',
+	VviTetYd: 'c71585',
+	midnightXe: '191970',
+	mRtcYam: 'f5fffa',
+	mistyPse: 'ffe4e1',
+	moccasR: 'ffe4b5',
+	navajowEte: 'ffdead',
+	navy: '80',
+	Tdlace: 'fdf5e6',
+	Tive: '808000',
+	TivedBb: '6b8e23',
+	Sange: 'ffa500',
+	SangeYd: 'ff4500',
+	ScEd: 'da70d6',
+	pOegTMnPd: 'eee8aa',
+	pOegYF: '98fb98',
+	pOeQe: 'afeeee',
+	pOeviTetYd: 'db7093',
+	papayawEp: 'ffefd5',
+	pHKpuff: 'ffdab9',
+	peru: 'cd853f',
+	pRk: 'ffc0cb',
+	plum: 'dda0dd',
+	powMrXe: 'b0e0e6',
+	purpN: '800080',
+	YbeccapurpN: '663399',
+	Yd: 'ff0000',
+	Psybrown: 'bc8f8f',
+	PyOXe: '4169e1',
+	saddNbPwn: '8b4513',
+	sOmon: 'fa8072',
+	sandybPwn: 'f4a460',
+	sHgYF: '2e8b57',
+	sHshell: 'fff5ee',
+	siFna: 'a0522d',
+	silver: 'c0c0c0',
+	skyXe: '87ceeb',
+	UXe: '6a5acd',
+	UWay: '708090',
+	UgYy: '708090',
+	snow: 'fffafa',
+	sprRggYF: 'ff7f',
+	stAlXe: '4682b4',
+	tan: 'd2b48c',
+	teO: '8080',
+	tEstN: 'd8bfd8',
+	tomato: 'ff6347',
+	Qe: '40e0d0',
+	viTet: 'ee82ee',
+	JHt: 'f5deb3',
+	wEte: 'ffffff',
+	wEtesmoke: 'f5f5f5',
+	Lw: 'ffff00',
+	LwgYF: '9acd32'
 };
 function unpack() {
   const unpacked = {};
@@ -2256,9 +1799,9 @@ class Color {
 }
 
 /*!
- * Chart.js v4.4.1
+ * Chart.js v4.6.1
  * https://www.chartjs.org
- * (c) 2023 Chart.js Contributors
+ * (c) 2026 Chart.js Contributors
  * Released under the MIT License
  */
 
@@ -2279,7 +1822,7 @@ class Color {
  * @param value - The value to test.
  * @since 2.7.0
  */ function isNullOrUndef(value) {
-    return value === null || typeof value === 'undefined';
+    return value === null || value === undefined;
 }
 /**
  * Returns true if `value` is an array (including typed arrays), else returns false.
@@ -2339,11 +1882,7 @@ function each(loopable, fn, thisArg, reverse) {
     let i, len, keys;
     if (isArray(loopable)) {
         len = loopable.length;
-        if (reverse) {
-            for(i = len - 1; i >= 0; i--){
-                fn.call(thisArg, loopable[i], i);
-            }
-        } else {
+        {
             for(i = 0; i < len; i++){
                 fn.call(thisArg, loopable[i], i);
             }
@@ -2574,8 +2113,13 @@ function almostEquals(x, y, epsilon) {
     result.sort((a, b)=>a - b).pop();
     return result;
 }
+/**
+ * Verifies that attempting to coerce n to string or number won't throw a TypeError.
+ */ function isNonPrimitive(n) {
+    return typeof n === 'symbol' || typeof n === 'object' && n !== null && !(Symbol.toPrimitive in n || 'toString' in n || 'valueOf' in n);
+}
 function isNumber(n) {
-    return !isNaN(parseFloat(n)) && isFinite(n);
+    return !isNonPrimitive(n) && !isNaN(parseFloat(n)) && isFinite(n);
 }
 function almostWhole(x, epsilon) {
     const rounded = Math.round(x);
@@ -2867,18 +2411,29 @@ function unlistenArrayEvents(array, listener) {
     let start = 0;
     let count = pointCount;
     if (meta._sorted) {
-        const { iScale , _parsed  } = meta;
+        const { iScale , vScale , _parsed  } = meta;
+        const spanGaps = meta.dataset ? meta.dataset.options ? meta.dataset.options.spanGaps : null : null;
         const axis = iScale.axis;
         const { min , max , minDefined , maxDefined  } = iScale.getUserBounds();
         if (minDefined) {
-            start = _limitValue(Math.min(// @ts-expect-error Need to type _parsed
+            start = Math.min(// @ts-expect-error Need to type _parsed
             _lookupByKey(_parsed, axis, min).lo, // @ts-expect-error Need to fix types on _lookupByKey
-            animationsDisabled ? pointCount : _lookupByKey(points, axis, iScale.getPixelForValue(min)).lo), 0, pointCount - 1);
+            animationsDisabled ? pointCount : _lookupByKey(points, axis, iScale.getPixelForValue(min)).lo);
+            if (spanGaps) {
+                const distanceToDefinedLo = _parsed.slice(0, start + 1).reverse().findIndex((point)=>!isNullOrUndef(point[vScale.axis]));
+                start -= Math.max(0, distanceToDefinedLo);
+            }
+            start = _limitValue(start, 0, pointCount - 1);
         }
         if (maxDefined) {
-            count = _limitValue(Math.max(// @ts-expect-error Need to type _parsed
+            let end = Math.max(// @ts-expect-error Need to type _parsed
             _lookupByKey(_parsed, iScale.axis, max, true).hi + 1, // @ts-expect-error Need to fix types on _lookupByKey
-            animationsDisabled ? 0 : _lookupByKey(points, axis, iScale.getPixelForValue(max), true).hi + 1), start, pointCount) - start;
+            animationsDisabled ? 0 : _lookupByKey(points, axis, iScale.getPixelForValue(max), true).hi + 1);
+            if (spanGaps) {
+                const distanceToDefinedHi = _parsed.slice(end - 1).findIndex((point)=>!isNullOrUndef(point[vScale.axis]));
+                end += Math.max(0, distanceToDefinedHi);
+            }
+            count = _limitValue(end, start, pointCount) - start;
         } else {
             count = pointCount - start;
         }
@@ -3433,6 +2988,9 @@ function _longestText(ctx, font, arrayOfThings, cache) {
 /**
  * Clears the entire canvas.
  */ function clearCanvas(canvas, ctx) {
+    if (!ctx && !canvas) {
+        return;
+    }
     ctx = ctx || canvas.getContext('2d');
     ctx.save();
     // canvas.width and canvas.height do not consider the canvas transform,
@@ -3839,7 +3397,6 @@ function _readValueToProps(value, props) {
  * @param info.cacheable - Will be set to `false` if option is not cacheable.
  * @since 2.7.0
  */ function resolve(inputs, context, index, info) {
-    let cacheable = true;
     let i, ilen, value;
     for(i = 0, ilen = inputs.length; i < ilen; ++i){
         value = inputs[i];
@@ -3848,16 +3405,11 @@ function _readValueToProps(value, props) {
         }
         if (context !== undefined && typeof value === 'function') {
             value = value(context);
-            cacheable = false;
         }
         if (index !== undefined && isArray(value)) {
             value = value[index % value.length];
-            cacheable = false;
         }
         if (value !== undefined) {
-            if (info && !cacheable) {
-                info.cacheable = false;
-            }
             return value;
         }
     }
@@ -4035,7 +3587,7 @@ function createContext(parentContext, context) {
 const readKey = (prefix, name)=>prefix ? prefix + _capitalize(name) : name;
 const needsSubResolver = (prop, value)=>isObject(value) && prop !== 'adapters' && (Object.getPrototypeOf(value) === null || value.constructor === Object);
 function _cached(target, prop, resolve) {
-    if (Object.prototype.hasOwnProperty.call(target, prop)) {
+    if (Object.prototype.hasOwnProperty.call(target, prop) || prop === 'constructor') {
         return target[prop];
     }
     const value = resolve();
@@ -4369,12 +3921,6 @@ function capBezierPoints(points, area) {
 }
 
 /**
- * Note: typedefs are auto-exported, so use a made-up `dom` namespace where
- * necessary to avoid duplicates with `export * from './helpers`; see
- * https://github.com/microsoft/TypeScript/issues/46011
- * @typedef { import('../core/core.controller.js').default } dom.Chart
- * @typedef { import('../../types').ChartEvent } ChartEvent
- */ /**
  * @private
  */ function _isDomSupported() {
     return typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -4481,7 +4027,7 @@ const useOffsetPos = (x, y, target)=>(x > 0 || y > 0) && (!target || !target.sha
 function getContainerSize(canvas, width, height) {
     let maxWidth, maxHeight;
     if (width === undefined || height === undefined) {
-        const container = _getParentNode(canvas);
+        const container = canvas && _getParentNode(canvas);
         if (!container) {
             width = canvas.clientWidth;
             height = canvas.clientHeight;
@@ -4544,10 +4090,10 @@ function getMaximumSize(canvas, bbWidth, bbHeight, aspectRatio) {
  * @returns True if the canvas context size or transformation has changed.
  */ function retinaScale(chart, forceRatio, forceStyle) {
     const pixelRatio = forceRatio || 1;
-    const deviceHeight = Math.floor(chart.height * pixelRatio);
-    const deviceWidth = Math.floor(chart.width * pixelRatio);
-    chart.height = Math.floor(chart.height);
-    chart.width = Math.floor(chart.width);
+    const deviceHeight = round1(chart.height * pixelRatio);
+    const deviceWidth = round1(chart.width * pixelRatio);
+    chart.height = round1(chart.height);
+    chart.width = round1(chart.width);
     const canvas = chart.canvas;
     // If no style has been set on the canvas, the render size is used as display size,
     // making the chart visually bigger, so let's enforce it to the "correct" values.
@@ -4556,10 +4102,12 @@ function getMaximumSize(canvas, bbWidth, bbHeight, aspectRatio) {
         canvas.style.height = `${chart.height}px`;
         canvas.style.width = `${chart.width}px`;
     }
-    if (chart.currentDevicePixelRatio !== pixelRatio || canvas.height !== deviceHeight || canvas.width !== deviceWidth) {
+    const canvasHeight = Math.floor(deviceHeight);
+    const canvasWidth = Math.floor(deviceWidth);
+    if (chart.currentDevicePixelRatio !== pixelRatio || canvas.height !== canvasHeight || canvas.width !== canvasWidth) {
         chart.currentDevicePixelRatio = pixelRatio;
-        canvas.height = deviceHeight;
-        canvas.width = deviceWidth;
+        canvas.height = canvasHeight;
+        canvas.width = canvasWidth;
         chart.ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
         return true;
     }
@@ -4987,10 +4535,39 @@ function styleChanged(style, prevStyle) {
     return JSON.stringify(style, replacer) !== JSON.stringify(prevStyle, replacer);
 }
 
+function getSizeForArea(scale, chartArea, field) {
+    return scale.options.clip ? scale[field] : chartArea[field];
+}
+function getDatasetArea(meta, chartArea) {
+    const { xScale , yScale  } = meta;
+    if (xScale && yScale) {
+        return {
+            left: getSizeForArea(xScale, chartArea, 'left'),
+            right: getSizeForArea(xScale, chartArea, 'right'),
+            top: getSizeForArea(yScale, chartArea, 'top'),
+            bottom: getSizeForArea(yScale, chartArea, 'bottom')
+        };
+    }
+    return chartArea;
+}
+function getDatasetClipArea(chart, meta) {
+    const clip = meta._clip;
+    if (clip.disabled) {
+        return false;
+    }
+    const area = getDatasetArea(meta, chart.chartArea);
+    return {
+        left: clip.left === false ? 0 : area.left - (clip.left === true ? 0 : clip.left),
+        right: clip.right === false ? chart.width : area.right + (clip.right === true ? 0 : clip.right),
+        top: clip.top === false ? 0 : area.top - (clip.top === true ? 0 : clip.top),
+        bottom: clip.bottom === false ? chart.height : area.bottom + (clip.bottom === true ? 0 : clip.bottom)
+    };
+}
+
 /*!
- * Chart.js v4.4.1
+ * Chart.js v4.6.1
  * https://www.chartjs.org
- * (c) 2023 Chart.js Contributors
+ * (c) 2026 Chart.js Contributors
  * Released under the MIT License
  */
 
@@ -5424,9 +5001,11 @@ function applyStack(stack, value, dsIndex, options = {}) {
     if (value === null) {
         return;
     }
+    let found = false;
     for(i = 0, ilen = keys.length; i < ilen; ++i){
         datasetIndex = +keys[i];
         if (datasetIndex === dsIndex) {
+            found = true;
             if (options.all) {
                 continue;
             }
@@ -5437,17 +5016,23 @@ function applyStack(stack, value, dsIndex, options = {}) {
             value += otherValue;
         }
     }
+    if (!found && !options.all) {
+        return 0;
+    }
     return value;
 }
-function convertObjectDataToArray(data) {
+function convertObjectDataToArray(data, meta) {
+    const { iScale , vScale  } = meta;
+    const iAxisKey = iScale.axis === 'x' ? 'x' : 'y';
+    const vAxisKey = vScale.axis === 'x' ? 'x' : 'y';
     const keys = Object.keys(data);
     const adata = new Array(keys.length);
     let i, ilen, key;
     for(i = 0, ilen = keys.length; i < ilen; ++i){
         key = keys[i];
         adata[i] = {
-            x: key,
-            y: data[key]
+            [iAxisKey]: key,
+            [vAxisKey]: data[key]
         };
     }
     return adata;
@@ -5536,7 +5121,7 @@ function clearStacks(meta, items) {
     for (const parsed of items){
         const stacks = parsed._stacks;
         if (!stacks || stacks[axis] === undefined || stacks[axis][datasetIndex] === undefined) {
-            return;
+            continue;
         }
         delete stacks[axis][datasetIndex];
         if (stacks[axis]._visualValues !== undefined && stacks[axis]._visualValues[datasetIndex] !== undefined) {
@@ -5639,7 +5224,8 @@ class DatasetController {
         const data = dataset.data || (dataset.data = []);
         const _data = this._data;
         if (isObject(data)) {
-            this._data = convertObjectDataToArray(data);
+            const meta = this._cachedMeta;
+            this._data = convertObjectDataToArray(data, meta);
         } else if (_data !== data) {
             if (_data) {
                 unlistenArrayEvents(_data, this);
@@ -5676,6 +5262,7 @@ class DatasetController {
         this._resyncElements(resetNewElements);
         if (stackChanged || oldStacked !== meta._stacked) {
             updateStacks(this, meta._parsed);
+            meta._stacked = isStacked(meta.vScale, meta);
         }
     }
  configure() {
@@ -6470,8 +6057,10 @@ class BarController extends DatasetController {
         const metasets = iScale.getMatchingVisibleMetas(this._type).filter((meta)=>meta.controller.options.grouped);
         const stacked = iScale.options.stacked;
         const stacks = [];
+        const currentParsed = this._cachedMeta.controller.getParsed(dataIndex);
+        const iScaleValue = currentParsed && currentParsed[iScale.axis];
         const skipNull = (meta)=>{
-            const parsed = meta.controller.getParsed(dataIndex);
+            const parsed = meta._parsed.find((item)=>item[iScale.axis] === iScaleValue);
             const val = parsed && parsed[meta.vScale.axis];
             if (isNullOrUndef(val) || isNaN(val)) {
                 return true;
@@ -6495,6 +6084,22 @@ class BarController extends DatasetController {
     }
  _getStackCount(index) {
         return this._getStacks(undefined, index).length;
+    }
+    _getAxisCount() {
+        return this._getAxis().length;
+    }
+    getFirstScaleIdForIndexAxis() {
+        const scales = this.chart.scales;
+        const indexScaleId = this.chart.options.indexAxis;
+        return Object.keys(scales).filter((key)=>scales[key].axis === indexScaleId).shift();
+    }
+    _getAxis() {
+        const axis = {};
+        const firstScaleAxisId = this.getFirstScaleIdForIndexAxis();
+        for (const dataset of this.chart.data.datasets){
+            axis[valueOrDefault(this.chart.options.indexAxis === 'x' ? dataset.xAxisID : dataset.yAxisID, firstScaleAxisId)] = true;
+        }
+        return Object.keys(axis);
     }
  _getStackIndex(datasetIndex, name, dataIndex) {
         const stacks = this._getStacks(datasetIndex, dataIndex);
@@ -6586,10 +6191,13 @@ class BarController extends DatasetController {
         const skipNull = options.skipNull;
         const maxBarThickness = valueOrDefault(options.maxBarThickness, Infinity);
         let center, size;
+        const axisCount = this._getAxisCount();
         if (ruler.grouped) {
             const stackCount = skipNull ? this._getStackCount(index) : ruler.stackCount;
-            const range = options.barThickness === 'flex' ? computeFlexCategoryTraits(index, ruler, options, stackCount) : computeFitCategoryTraits(index, ruler, options, stackCount);
-            const stackIndex = this._getStackIndex(this.index, this._cachedMeta.stack, skipNull ? index : undefined);
+            const range = options.barThickness === 'flex' ? computeFlexCategoryTraits(index, ruler, options, stackCount * axisCount) : computeFitCategoryTraits(index, ruler, options, stackCount * axisCount);
+            const axisID = this.chart.options.indexAxis === 'x' ? this.getDataset().xAxisID : this.getDataset().yAxisID;
+            const axisNumber = this._getAxis().indexOf(valueOrDefault(axisID, this.getFirstScaleIdForIndexAxis()));
+            const stackIndex = this._getStackIndex(this.index, this._cachedMeta.stack, skipNull ? index : undefined) + axisNumber;
             center = range.start + range.chunk * stackIndex + range.chunk / 2;
             size = Math.min(maxBarThickness, range.chunk * range.ratio);
         } else {
@@ -6610,7 +6218,7 @@ class BarController extends DatasetController {
         const ilen = rects.length;
         let i = 0;
         for(; i < ilen; ++i){
-            if (this.getParsed(i)[vScale.axis] !== null) {
+            if (this.getParsed(i)[vScale.axis] !== null && !rects[i].hidden) {
                 rects[i].draw(this._ctx);
             }
         }
@@ -6796,11 +6404,12 @@ class DoughnutController extends DatasetController {
         circumference: 360,
         radius: '100%',
         spacing: 0,
+        spacingMode: 'angular',
         indexAxis: 'r'
     };
     static descriptors = {
-        _scriptable: (name)=>name !== 'spacing',
-        _indexable: (name)=>name !== 'spacing' && !name.startsWith('borderDash') && !name.startsWith('hoverBorderDash')
+        _scriptable: (name)=>name !== 'spacing' && name !== 'spacingMode',
+        _indexable: (name)=>name !== 'spacing' && name !== 'spacingMode' && !name.startsWith('borderDash') && !name.startsWith('hoverBorderDash')
     };
  static overrides = {
         aspectRatio: 1,
@@ -6809,19 +6418,24 @@ class DoughnutController extends DatasetController {
                 labels: {
                     generateLabels (chart) {
                         const data = chart.data;
+                        const { labels: { pointStyle , textAlign , color , useBorderRadius , borderRadius  }  } = chart.legend.options;
                         if (data.labels.length && data.datasets.length) {
-                            const { labels: { pointStyle , color  }  } = chart.legend.options;
                             return data.labels.map((label, i)=>{
                                 const meta = chart.getDatasetMeta(0);
                                 const style = meta.controller.getStyle(i);
                                 return {
                                     text: label,
                                     fillStyle: style.backgroundColor,
-                                    strokeStyle: style.borderColor,
                                     fontColor: color,
-                                    lineWidth: style.borderWidth,
-                                    pointStyle: pointStyle,
                                     hidden: !chart.getDataVisibility(i),
+                                    lineDash: style.borderDash,
+                                    lineDashOffset: style.borderDashOffset,
+                                    lineJoin: style.borderJoinStyle,
+                                    lineWidth: style.borderWidth,
+                                    strokeStyle: style.borderColor,
+                                    textAlign: textAlign,
+                                    pointStyle: pointStyle,
+                                    borderRadius: useBorderRadius && (borderRadius || style.borderRadius),
                                     index: i
                                 };
                             });
@@ -7162,7 +6776,9 @@ class PolarAreaController extends DatasetController {
             }
         },
         indexAxis: 'r',
-        startAngle: 0
+        startAngle: 0,
+        spacing: 0,
+        spacingMode: 'proportional'
     };
  static overrides = {
         aspectRatio: 1,
@@ -7305,6 +6921,12 @@ class PolarAreaController extends DatasetController {
                 endAngle,
                 options: this.resolveDataElementOptions(i, arc.active ? 'active' : mode)
             };
+            if (properties.options.spacing === 0) {
+                properties.options.spacing = this.options.spacing;
+            }
+            if (properties.options.spacingMode === 'angular') {
+                properties.options.spacingMode = this.options.spacingMode;
+            }
             this.updateElement(arc, i, properties, mode);
         }
     }
@@ -7606,10 +7228,20 @@ var adapters = {
 function binarySearch(metaset, axis, value, intersect) {
     const { controller , data , _sorted  } = metaset;
     const iScale = controller._cachedMeta.iScale;
+    const spanGaps = metaset.dataset ? metaset.dataset.options ? metaset.dataset.options.spanGaps : null : null;
     if (iScale && axis === iScale.axis && axis !== 'r' && _sorted && data.length) {
         const lookupMethod = iScale._reversePixels ? _rlookupByKey : _lookupByKey;
         if (!intersect) {
-            return lookupMethod(data, axis, value);
+            const result = lookupMethod(data, axis, value);
+            if (spanGaps) {
+                const { vScale  } = controller._cachedMeta;
+                const { _parsed  } = metaset;
+                const distanceToDefinedLo = _parsed.slice(0, result.lo + 1).reverse().findIndex((point)=>!isNullOrUndef(point[vScale.axis]));
+                result.lo -= Math.max(0, distanceToDefinedLo);
+                const distanceToDefinedHi = _parsed.slice(result.hi).findIndex((point)=>!isNullOrUndef(point[vScale.axis]));
+                result.hi += Math.max(0, distanceToDefinedHi);
+            }
+            return result;
         } else if (controller._sharedOptions) {
             const el = data[0];
             const range = typeof el.getRange === 'function' && el.getRange(axis);
@@ -7739,7 +7371,7 @@ function binarySearch(metaset, axis, value, intersect) {
     const rangeMethod = axis === 'x' ? 'inXRange' : 'inYRange';
     let intersectsItem = false;
     evaluateInteractionItems(chart, axis, position, (element, datasetIndex, index)=>{
-        if (element[rangeMethod](position[axis], useFinalPosition)) {
+        if (element[rangeMethod] && element[rangeMethod](position[axis], useFinalPosition)) {
             items.push({
                 element,
                 datasetIndex,
@@ -7754,7 +7386,6 @@ function binarySearch(metaset, axis, value, intersect) {
     return items;
 }
  var Interaction = {
-    evaluateInteractionItems,
     modes: {
  index (chart, e, options, useFinalPosition) {
             const position = getRelativePosition(e, chart);
@@ -8017,7 +7648,6 @@ function placeBoxes(boxes, chartArea, params, stacks) {
     for (const layout of boxes){
         const box = layout.box;
         const stack = stacks[layout.stack] || {
-            count: 1,
             placed: 0,
             weight: 1
         };
@@ -8238,10 +7868,14 @@ const eventListenerOptions = supportsEventListenerOptions ? {
     passive: true
 } : false;
 function addListener(node, type, listener) {
-    node.addEventListener(type, listener, eventListenerOptions);
+    if (node) {
+        node.addEventListener(type, listener, eventListenerOptions);
+    }
 }
 function removeListener(chart, type, listener) {
-    chart.canvas.removeEventListener(type, listener, eventListenerOptions);
+    if (chart && chart.canvas) {
+        chart.canvas.removeEventListener(type, listener, eventListenerOptions);
+    }
 }
 function fromNativeEvent(event, chart) {
     const type = EVENT_TYPES[event.type] || event.type;
@@ -8434,7 +8068,7 @@ function createProxyAndListen(chart, type, listener) {
         return getMaximumSize(canvas, width, height, aspectRatio);
     }
  isAttached(canvas) {
-        const container = _getParentNode(canvas);
+        const container = canvas && _getParentNode(canvas);
         return !!(container && container.isConnected);
     }
 }
@@ -9788,7 +9422,9 @@ class Scale extends Element {
             translation: [
                 titleX,
                 titleY
-            ]
+            ],
+            strokeColor: title.strokeColor,
+            strokeWidth: title.strokeWidth
         });
     }
     draw(chartArea) {
@@ -10039,18 +9675,22 @@ var registry = /* #__PURE__ */ new Registry();
 
 class PluginService {
     constructor(){
-        this._init = [];
+        this._init = undefined;
     }
  notify(chart, hook, args, filter) {
         if (hook === 'beforeInit') {
             this._init = this._createDescriptors(chart, true);
             this._notify(this._init, chart, 'install');
         }
+        if (this._init === undefined) {
+            return;
+        }
         const descriptors = filter ? this._descriptors(chart).filter(filter) : this._descriptors(chart);
         const result = this._notify(descriptors, chart, hook, args);
         if (hook === 'afterDestroy') {
             this._notify(descriptors, chart, 'stop');
             this._notify(this._init, chart, 'uninstall');
+            this._init = undefined;
         }
         return result;
     }
@@ -10493,7 +10133,7 @@ function needContext(proxy, names) {
     return false;
 }
 
-var version = "4.4.1";
+var version = "4.6.1";
 
 const KNOWN_POSITIONS = [
     'top',
@@ -10562,21 +10202,6 @@ function moveNumericKeys(obj, start, move) {
         return lastEvent;
     }
     return e;
-}
-function getSizeForArea(scale, chartArea, field) {
-    return scale.options.clip ? scale[field] : chartArea[field];
-}
-function getDatasetArea(meta, chartArea) {
-    const { xScale , yScale  } = meta;
-    if (xScale && yScale) {
-        return {
-            left: getSizeForArea(xScale, chartArea, 'left'),
-            right: getSizeForArea(xScale, chartArea, 'right'),
-            top: getSizeForArea(yScale, chartArea, 'top'),
-            bottom: getSizeForArea(yScale, chartArea, 'bottom')
-        };
-    }
-    return chartArea;
 }
 class Chart {
     static defaults = defaults$1;
@@ -11025,8 +10650,8 @@ class Chart {
         let i;
         if (this._resizeBeforeDraw) {
             const { width , height  } = this._resizeBeforeDraw;
-            this._resize(width, height);
             this._resizeBeforeDraw = null;
+            this._resize(width, height);
         }
         this.clear();
         if (this.width <= 0 || this.height <= 0) {
@@ -11076,27 +10701,20 @@ class Chart {
     }
  _drawDataset(meta) {
         const ctx = this.ctx;
-        const clip = meta._clip;
-        const useClip = !clip.disabled;
-        const area = getDatasetArea(meta, this.chartArea);
         const args = {
             meta,
             index: meta.index,
             cancelable: true
         };
+        const clip = getDatasetClipArea(this, meta);
         if (this.notifyPlugins('beforeDatasetDraw', args) === false) {
             return;
         }
-        if (useClip) {
-            clipArea(ctx, {
-                left: clip.left === false ? 0 : area.left - clip.left,
-                right: clip.right === false ? this.width : area.right + clip.right,
-                top: clip.top === false ? 0 : area.top - clip.top,
-                bottom: clip.bottom === false ? this.height : area.bottom + clip.bottom
-            });
+        if (clip) {
+            clipArea(ctx, clip);
         }
         meta.controller.draw();
-        if (useClip) {
+        if (clip) {
             unclipArea(ctx);
         }
         args.cancelable = false;
@@ -11409,6 +11027,34 @@ function invalidatePlugins() {
     return each(Chart.instances, (chart)=>chart._plugins.invalidate());
 }
 
+function clipSelf(ctx, element, endAngle) {
+    const { startAngle , x , y , outerRadius , innerRadius , options  } = element;
+    const { borderWidth , borderJoinStyle  } = options;
+    const outerAngleClip = Math.min(borderWidth / outerRadius, _normalizeAngle(startAngle - endAngle));
+    ctx.beginPath();
+    ctx.arc(x, y, outerRadius - borderWidth / 2, startAngle + outerAngleClip / 2, endAngle - outerAngleClip / 2);
+    if (innerRadius > 0) {
+        const innerAngleClip = Math.min(borderWidth / innerRadius, _normalizeAngle(startAngle - endAngle));
+        ctx.arc(x, y, innerRadius + borderWidth / 2, endAngle - innerAngleClip / 2, startAngle + innerAngleClip / 2, true);
+    } else {
+        const clipWidth = Math.min(borderWidth / 2, outerRadius * _normalizeAngle(startAngle - endAngle));
+        if (borderJoinStyle === 'round') {
+            ctx.arc(x, y, clipWidth, endAngle - PI / 2, startAngle + PI / 2, true);
+        } else if (borderJoinStyle === 'bevel') {
+            const r = 2 * clipWidth * clipWidth;
+            const endX = -r * Math.cos(endAngle + PI / 2) + x;
+            const endY = -r * Math.sin(endAngle + PI / 2) + y;
+            const startX = r * Math.cos(startAngle + PI / 2) + x;
+            const startY = r * Math.sin(startAngle + PI / 2) + y;
+            ctx.lineTo(endX, endY);
+            ctx.lineTo(startX, startY);
+        }
+    }
+    ctx.closePath();
+    ctx.moveTo(0, 0);
+    ctx.rect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.clip('evenodd');
+}
 function clipArc(ctx, element, endAngle) {
     const { startAngle , pixelMargin , x , y , outerRadius , innerRadius  } = element;
     let angleMargin = pixelMargin / outerRadius;
@@ -11465,6 +11111,19 @@ function toRadiusCorners(value) {
         y: y + r * Math.sin(theta)
     };
 }
+function pathFullCircle(ctx, element, offset, spacing) {
+    const { x , y , startAngle: start , pixelMargin , innerRadius: innerR  } = element;
+    const outerRadius = Math.max(element.outerRadius + spacing + offset - pixelMargin, 0);
+    const innerRadius = innerR > 0 ? innerR + spacing + offset + pixelMargin : 0;
+    ctx.beginPath();
+    ctx.arc(x, y, outerRadius, start, start + TAU);
+    if (innerRadius > 0) {
+        // Start the inner contour as a separate subpath to avoid a seam connector.
+        ctx.moveTo(x + Math.cos(start) * innerRadius, y + Math.sin(start) * innerRadius);
+        ctx.arc(x, y, innerRadius, start + TAU, start, true);
+    }
+    ctx.closePath();
+}
 /**
  * Path the arc, respecting border radius by separating into left and right halves.
  *
@@ -11480,33 +11139,68 @@ function toRadiusCorners(value) {
  *    6<---b<---5    Inner
  */ function pathArc(ctx, element, offset, spacing, end, circular) {
     const { x , y , startAngle: start , pixelMargin , innerRadius: innerR  } = element;
-    const outerRadius = Math.max(element.outerRadius + spacing + offset - pixelMargin, 0);
-    const innerRadius = innerR > 0 ? innerR + spacing + offset + pixelMargin : 0;
-    let spacingOffset = 0;
+    const { spacingMode ='angular'  } = element.options;
     const alpha = end - start;
+    if (circular && element.options.selfJoin && Math.abs(alpha) >= TAU - 1e-4) {
+        pathFullCircle(ctx, element, offset, spacing);
+        return;
+    }
+    const outerRadius = Math.max(element.outerRadius + spacing + offset - pixelMargin, 0);
+    let innerRadius = innerR > 0 ? innerR + spacing + offset + pixelMargin : 0;
+    let outerSpacingOffset = 0;
+    let innerSpacingOffset = 0;
+    const beta = outerRadius > 0 ? Math.max(0.001, alpha * outerRadius - offset / PI) / outerRadius : 0.001;
+    const angleOffset = (alpha - beta) / 2;
     if (spacing) {
         // When spacing is present, it is the same for all items
         // So we adjust the start and end angle of the arc such that
         // the distance is the same as it would be without the spacing
         const noSpacingInnerRadius = innerR > 0 ? innerR - spacing : 0;
         const noSpacingOuterRadius = outerRadius > 0 ? outerRadius - spacing : 0;
-        const avNogSpacingRadius = (noSpacingInnerRadius + noSpacingOuterRadius) / 2;
-        const adjustedAngle = avNogSpacingRadius !== 0 ? alpha * avNogSpacingRadius / (avNogSpacingRadius + spacing) : alpha;
-        spacingOffset = (alpha - adjustedAngle) / 2;
+        const avgNoSpacingRadius = (noSpacingInnerRadius + noSpacingOuterRadius) / 2;
+        const proportionalOffset = (()=>{
+            const adjustedAngle = avgNoSpacingRadius !== 0 ? alpha * avgNoSpacingRadius / (avgNoSpacingRadius + spacing) : alpha;
+            return (alpha - adjustedAngle) / 2;
+        })();
+        const angularOffset = avgNoSpacingRadius > 0 ? Math.asin(Math.min(1, spacing / avgNoSpacingRadius)) : 0;
+        // Keep spacing trims below half the available span after base offset trimming.
+        const maxOffset = Math.max(0, beta / 2 - 0.001);
+        const maxOffsetSin = Math.sin(maxOffset);
+        if (spacingMode === 'parallel') {
+            if (innerRadius === 0 && maxOffsetSin > 0) {
+                // A root radius of zero cannot realize a non-zero parallel separator width.
+                // Raise the root just enough for the available angular span.
+                const minInnerRadius = spacing / maxOffsetSin;
+                const maxInnerRadius = Math.max(0, outerRadius - 0.001);
+                innerRadius = Math.min(minInnerRadius, maxInnerRadius);
+            }
+            // Use one bounded spacing value for both radii so large spacing keeps stable geometry.
+            const maxParallelSpacing = Math.min(outerRadius > 0 ? outerRadius * maxOffsetSin : Number.POSITIVE_INFINITY, innerRadius > 0 ? innerRadius * maxOffsetSin : Number.POSITIVE_INFINITY);
+            const parallelSpacing = Math.min(spacing, maxParallelSpacing);
+            outerSpacingOffset = outerRadius > 0 ? Math.asin(Math.min(1, parallelSpacing / outerRadius)) : Math.min(maxOffset, angularOffset);
+            innerSpacingOffset = innerRadius > 0 ? Math.asin(Math.min(1, parallelSpacing / innerRadius)) : outerSpacingOffset;
+        } else if (spacingMode === 'proportional') {
+            outerSpacingOffset = Math.min(maxOffset, proportionalOffset);
+            innerSpacingOffset = Math.min(maxOffset, proportionalOffset);
+        } else {
+            outerSpacingOffset = Math.min(maxOffset, angularOffset);
+            innerSpacingOffset = Math.min(maxOffset, angularOffset);
+        }
     }
-    const beta = Math.max(0.001, alpha * outerRadius - offset / PI) / outerRadius;
-    const angleOffset = (alpha - beta) / 2;
-    const startAngle = start + angleOffset + spacingOffset;
-    const endAngle = end - angleOffset - spacingOffset;
-    const { outerStart , outerEnd , innerStart , innerEnd  } = parseBorderRadius$1(element, innerRadius, outerRadius, endAngle - startAngle);
+    const outerStartAngle = start + angleOffset + outerSpacingOffset;
+    const outerEndAngle = end - angleOffset - outerSpacingOffset;
+    const innerStartAngle = start + angleOffset + innerSpacingOffset;
+    const innerEndAngle = end - angleOffset - innerSpacingOffset;
+    const angleDelta = Math.min(outerEndAngle - outerStartAngle, innerEndAngle - innerStartAngle);
+    const { outerStart , outerEnd , innerStart , innerEnd  } = parseBorderRadius$1(element, innerRadius, outerRadius, angleDelta);
     const outerStartAdjustedRadius = outerRadius - outerStart;
     const outerEndAdjustedRadius = outerRadius - outerEnd;
-    const outerStartAdjustedAngle = startAngle + outerStart / outerStartAdjustedRadius;
-    const outerEndAdjustedAngle = endAngle - outerEnd / outerEndAdjustedRadius;
+    const outerStartAdjustedAngle = outerStartAngle + outerStart / outerStartAdjustedRadius;
+    const outerEndAdjustedAngle = outerEndAngle - outerEnd / outerEndAdjustedRadius;
     const innerStartAdjustedRadius = innerRadius + innerStart;
     const innerEndAdjustedRadius = innerRadius + innerEnd;
-    const innerStartAdjustedAngle = startAngle + innerStart / innerStartAdjustedRadius;
-    const innerEndAdjustedAngle = endAngle - innerEnd / innerEndAdjustedRadius;
+    const innerStartAdjustedAngle = innerStartAngle + innerStart / innerStartAdjustedRadius;
+    const innerEndAdjustedAngle = innerEndAngle - innerEnd / innerEndAdjustedRadius;
     ctx.beginPath();
     if (circular) {
         // The first arc segments from point 1 to point a to point 2
@@ -11516,32 +11210,32 @@ function toRadiusCorners(value) {
         // The corner segment from point 2 to point 3
         if (outerEnd > 0) {
             const pCenter = rThetaToXY(outerEndAdjustedRadius, outerEndAdjustedAngle, x, y);
-            ctx.arc(pCenter.x, pCenter.y, outerEnd, outerEndAdjustedAngle, endAngle + HALF_PI);
+            ctx.arc(pCenter.x, pCenter.y, outerEnd, outerEndAdjustedAngle, outerEndAngle + HALF_PI);
         }
         // The line from point 3 to point 4
-        const p4 = rThetaToXY(innerEndAdjustedRadius, endAngle, x, y);
+        const p4 = rThetaToXY(innerEndAdjustedRadius, innerEndAngle, x, y);
         ctx.lineTo(p4.x, p4.y);
         // The corner segment from point 4 to point 5
         if (innerEnd > 0) {
             const pCenter = rThetaToXY(innerEndAdjustedRadius, innerEndAdjustedAngle, x, y);
-            ctx.arc(pCenter.x, pCenter.y, innerEnd, endAngle + HALF_PI, innerEndAdjustedAngle + Math.PI);
+            ctx.arc(pCenter.x, pCenter.y, innerEnd, innerEndAngle + HALF_PI, innerEndAdjustedAngle + Math.PI);
         }
         // The inner arc from point 5 to point b to point 6
-        const innerMidAdjustedAngle = (endAngle - innerEnd / innerRadius + (startAngle + innerStart / innerRadius)) / 2;
-        ctx.arc(x, y, innerRadius, endAngle - innerEnd / innerRadius, innerMidAdjustedAngle, true);
-        ctx.arc(x, y, innerRadius, innerMidAdjustedAngle, startAngle + innerStart / innerRadius, true);
+        const innerMidAdjustedAngle = (innerEndAngle - innerEnd / innerRadius + (innerStartAngle + innerStart / innerRadius)) / 2;
+        ctx.arc(x, y, innerRadius, innerEndAngle - innerEnd / innerRadius, innerMidAdjustedAngle, true);
+        ctx.arc(x, y, innerRadius, innerMidAdjustedAngle, innerStartAngle + innerStart / innerRadius, true);
         // The corner segment from point 6 to point 7
         if (innerStart > 0) {
             const pCenter = rThetaToXY(innerStartAdjustedRadius, innerStartAdjustedAngle, x, y);
-            ctx.arc(pCenter.x, pCenter.y, innerStart, innerStartAdjustedAngle + Math.PI, startAngle - HALF_PI);
+            ctx.arc(pCenter.x, pCenter.y, innerStart, innerStartAdjustedAngle + Math.PI, innerStartAngle - HALF_PI);
         }
         // The line from point 7 to point 8
-        const p8 = rThetaToXY(outerStartAdjustedRadius, startAngle, x, y);
+        const p8 = rThetaToXY(outerStartAdjustedRadius, outerStartAngle, x, y);
         ctx.lineTo(p8.x, p8.y);
         // The corner segment from point 8 to point 1
         if (outerStart > 0) {
             const pCenter = rThetaToXY(outerStartAdjustedRadius, outerStartAdjustedAngle, x, y);
-            ctx.arc(pCenter.x, pCenter.y, outerStart, startAngle - HALF_PI, outerStartAdjustedAngle);
+            ctx.arc(pCenter.x, pCenter.y, outerStart, outerStartAngle - HALF_PI, outerStartAdjustedAngle);
         }
     } else {
         ctx.moveTo(x, y);
@@ -11572,7 +11266,7 @@ function drawArc(ctx, element, offset, spacing, circular) {
 }
 function drawBorder(ctx, element, offset, spacing, circular) {
     const { fullCircles , startAngle , circumference , options  } = element;
-    const { borderWidth , borderJoinStyle , borderDash , borderDashOffset  } = options;
+    const { borderWidth , borderJoinStyle , borderDash , borderDashOffset , borderRadius  } = options;
     const inner = options.borderAlign === 'inner';
     if (!borderWidth) {
         return;
@@ -11587,6 +11281,7 @@ function drawBorder(ctx, element, offset, spacing, circular) {
         ctx.lineJoin = borderJoinStyle || 'bevel';
     }
     let endAngle = element.endAngle;
+    const isFullCircle = Math.abs(endAngle - startAngle) >= TAU - 1e-4;
     if (fullCircles) {
         pathArc(ctx, element, offset, spacing, endAngle, circular);
         for(let i = 0; i < fullCircles; ++i){
@@ -11598,6 +11293,10 @@ function drawBorder(ctx, element, offset, spacing, circular) {
     }
     if (inner) {
         clipArc(ctx, element, endAngle);
+    }
+    const skipSelfClip = isFullCircle && element.innerRadius > 0;
+    if (!skipSelfClip && options.selfJoin && endAngle - startAngle >= PI && borderRadius === 0 && borderJoinStyle !== 'miter') {
+        clipSelf(ctx, element, endAngle);
     }
     if (!fullCircles) {
         pathArc(ctx, element, offset, spacing, endAngle, circular);
@@ -11616,8 +11315,10 @@ class ArcElement extends Element {
         borderWidth: 2,
         offset: 0,
         spacing: 0,
+        spacingMode: 'angular',
         angle: undefined,
-        circular: true
+        circular: true,
+        selfJoin: false
     };
     static defaultRoutes = {
         backgroundColor: 'backgroundColor'
@@ -11633,6 +11334,7 @@ class ArcElement extends Element {
     outerRadius;
     pixelMargin;
     startAngle;
+    circular;
     constructor(cfg){
         super();
         this.options = undefined;
@@ -11643,6 +11345,7 @@ class ArcElement extends Element {
         this.outerRadius = undefined;
         this.pixelMargin = 0;
         this.fullCircles = 0;
+        this.circular = false;
         if (cfg) {
             Object.assign(this, cfg);
         }
@@ -11665,7 +11368,8 @@ class ArcElement extends Element {
         ], useFinalPosition);
         const rAdjust = (this.options.spacing + this.options.borderWidth) / 2;
         const _circumference = valueOrDefault(circumference, endAngle - startAngle);
-        const betweenAngles = _circumference >= TAU || _angleBetween(angle, startAngle, endAngle);
+        const nonZeroBetween = _angleBetween(angle, startAngle, endAngle) && startAngle !== endAngle;
+        const betweenAngles = _circumference >= TAU || nonZeroBetween;
         const withinRadius = _isBetween(distance, innerRadius + rAdjust, outerRadius + rAdjust);
         return betweenAngles && withinRadius;
     }
@@ -12331,6 +12035,9 @@ function containsColorsDefinitions(descriptors) {
 function containsColorsDefinition(descriptor) {
     return descriptor && (descriptor.borderColor || descriptor.backgroundColor);
 }
+function containsDefaultColorsDefenitions() {
+    return defaults$1.borderColor !== 'rgba(0,0,0,0.1)' || defaults$1.backgroundColor !== 'rgba(0,0,0,0.1)';
+}
 var plugin_colors = {
     id: 'colors',
     defaults: {
@@ -12343,7 +12050,8 @@ var plugin_colors = {
         }
         const { data: { datasets  } , options: chartOptions  } = chart.config;
         const { elements  } = chartOptions;
-        if (!options.forceOverride && (containsColorsDefinitions(datasets) || containsColorsDefinition(chartOptions) || elements && containsColorsDefinitions(elements))) {
+        const containsColorDefenition = containsColorsDefinitions(datasets) || containsColorsDefinition(chartOptions) || elements && containsColorsDefinitions(elements) || containsDefaultColorsDefenitions();
+        if (!options.forceOverride && containsColorDefenition) {
             return;
         }
         const colorizer = getColorizer(chart);
@@ -12942,13 +12650,15 @@ function computeCircularBoundary(source) {
 
 function _drawfill(ctx, source, area) {
     const target = _getTarget(source);
-    const { line , scale , axis  } = source;
+    const { chart , index , line , scale , axis  } = source;
     const lineOpts = line.options;
     const fillOption = lineOpts.fill;
     const color = lineOpts.backgroundColor;
     const { above =color , below =color  } = fillOption || {};
+    const meta = chart.getDatasetMeta(index);
+    const clip = getDatasetClipArea(chart, meta);
     if (target && line.points.length) {
-        clipArea(ctx, area);
+        clipArea(ctx, clipToIndexBounds(area, meta.iScale));
         doFill(ctx, {
             line,
             target,
@@ -12956,34 +12666,72 @@ function _drawfill(ctx, source, area) {
             below,
             area,
             scale,
-            axis
+            axis,
+            clip
         });
         unclipArea(ctx);
     }
 }
+function clipToIndexBounds(area, iScale) {
+    if (!iScale || iScale.getPointPositionForValue) {
+        return area;
+    }
+    const p1 = iScale.getPixelForValue(iScale.min);
+    const p2 = iScale.getPixelForValue(iScale.max);
+    const lo = Math.min(p1, p2);
+    const hi = Math.max(p1, p2);
+    return iScale.isHorizontal() ? {
+        ...area,
+        left: Math.max(area.left, lo),
+        right: Math.min(area.right, hi)
+    } : {
+        ...area,
+        top: Math.max(area.top, lo),
+        bottom: Math.min(area.bottom, hi)
+    };
+}
 function doFill(ctx, cfg) {
-    const { line , target , above , below , area , scale  } = cfg;
+    const { line , target , above , below , area , scale , clip  } = cfg;
     const property = line._loop ? 'angle' : cfg.axis;
     ctx.save();
-    if (property === 'x' && below !== above) {
-        clipVertical(ctx, target, area.top);
-        fill(ctx, {
-            line,
-            target,
-            color: above,
-            scale,
-            property
-        });
-        ctx.restore();
-        ctx.save();
-        clipVertical(ctx, target, area.bottom);
+    let fillColor = below;
+    if (below !== above) {
+        if (property === 'x') {
+            clipVertical(ctx, target, area.top);
+            fill(ctx, {
+                line,
+                target,
+                color: above,
+                scale,
+                property,
+                clip
+            });
+            ctx.restore();
+            ctx.save();
+            clipVertical(ctx, target, area.bottom);
+        } else if (property === 'y') {
+            clipHorizontal(ctx, target, area.left);
+            fill(ctx, {
+                line,
+                target,
+                color: below,
+                scale,
+                property,
+                clip
+            });
+            ctx.restore();
+            ctx.save();
+            clipHorizontal(ctx, target, area.right);
+            fillColor = above;
+        }
     }
     fill(ctx, {
         line,
         target,
-        color: below,
+        color: fillColor,
         scale,
-        property
+        property,
+        clip
     });
     ctx.restore();
 }
@@ -13016,15 +12764,44 @@ function clipVertical(ctx, target, clipY) {
     ctx.closePath();
     ctx.clip();
 }
+function clipHorizontal(ctx, target, clipX) {
+    const { segments , points  } = target;
+    let first = true;
+    let lineLoop = false;
+    ctx.beginPath();
+    for (const segment of segments){
+        const { start , end  } = segment;
+        const firstPoint = points[start];
+        const lastPoint = points[_findSegmentEnd(start, end, points)];
+        if (first) {
+            ctx.moveTo(firstPoint.x, firstPoint.y);
+            first = false;
+        } else {
+            ctx.lineTo(clipX, firstPoint.y);
+            ctx.lineTo(firstPoint.x, firstPoint.y);
+        }
+        lineLoop = !!target.pathSegment(ctx, segment, {
+            move: lineLoop
+        });
+        if (lineLoop) {
+            ctx.closePath();
+        } else {
+            ctx.lineTo(clipX, lastPoint.y);
+        }
+    }
+    ctx.lineTo(clipX, target.first().y);
+    ctx.closePath();
+    ctx.clip();
+}
 function fill(ctx, cfg) {
-    const { line , target , property , color , scale  } = cfg;
+    const { line , target , property , color , scale , clip  } = cfg;
     const segments = _segments(line, target, property);
     for (const { source: src , target: tgt , start , end  } of segments){
         const { style: { backgroundColor =color  } = {}  } = src;
         const notShape = target !== true;
         ctx.save();
         ctx.fillStyle = backgroundColor;
-        clipBounds(ctx, scale, notShape && _getBounds(property, start, end));
+        clipBounds(ctx, scale, clip, notShape && _getBounds(property, start, end));
         ctx.beginPath();
         const lineLoop = !!line.pathSegment(ctx, src);
         let loop;
@@ -13048,12 +12825,30 @@ function fill(ctx, cfg) {
         ctx.restore();
     }
 }
-function clipBounds(ctx, scale, bounds) {
-    const { top , bottom  } = scale.chart.chartArea;
+function clipBounds(ctx, scale, clip, bounds) {
+    const chartArea = scale.chart.chartArea;
     const { property , start , end  } = bounds || {};
-    if (property === 'x') {
+    if (property === 'x' || property === 'y') {
+        let left, top, right, bottom;
+        if (property === 'x') {
+            left = start;
+            top = chartArea.top;
+            right = end;
+            bottom = chartArea.bottom;
+        } else {
+            left = chartArea.left;
+            top = start;
+            right = chartArea.right;
+            bottom = end;
+        }
         ctx.beginPath();
-        ctx.rect(start, top, end - start, bottom - top);
+        if (clip) {
+            left = Math.max(left, clip.left);
+            right = Math.min(right, clip.right);
+            top = Math.max(top, clip.top);
+            bottom = Math.min(bottom, clip.bottom);
+        }
+        ctx.rect(left, top, right - left, bottom - top);
         ctx.clip();
     }
 }
@@ -13874,20 +13669,26 @@ const positioners$1 = {
             return false;
         }
         let i, len;
-        let x = 0;
+        let xSet = new Set();
         let y = 0;
         let count = 0;
         for(i = 0, len = items.length; i < len; ++i){
             const el = items[i].element;
             if (el && el.hasValue()) {
                 const pos = el.tooltipPosition();
-                x += pos.x;
+                xSet.add(pos.x);
                 y += pos.y;
                 ++count;
             }
         }
+        if (count === 0 || xSet.size === 0) {
+            return false;
+        }
+        const xAverage = [
+            ...xSet
+        ].reduce((a, b)=>a + b) / xSet.size;
         return {
-            x: x / count,
+            x: xAverage,
             y: y / count
         };
     },
@@ -15342,14 +15143,14 @@ class LogarithmicScale extends Scale {
                 setMax(10);
             } else {
                 setMin(changeExponent(min, -1));
-                setMax(changeExponent(max, +1));
+                setMax(changeExponent(max, 1));
             }
         }
         if (min <= 0) {
             setMin(changeExponent(max, -1));
         }
         if (max <= 0) {
-            setMax(changeExponent(min, +1));
+            setMax(changeExponent(min, 1));
         }
         this.min = min;
         this.max = max;
@@ -15635,7 +15436,7 @@ function drawRadiusLine(scale, gridLineOpts, radius, labelCount, borderOpts) {
     ctx.save();
     ctx.strokeStyle = color;
     ctx.lineWidth = lineWidth;
-    ctx.setLineDash(borderOpts.dash);
+    ctx.setLineDash(borderOpts.dash || []);
     ctx.lineDashOffset = borderOpts.dashOffset;
     ctx.beginPath();
     pathRadiusLine(scale, radius, circular, labelCount);
@@ -15818,7 +15619,7 @@ class RadialLinearScale extends LinearScaleBase {
         }
         if (grid.display) {
             this.ticks.forEach((tick, index)=>{
-                if (index !== 0) {
+                if (index !== 0 || index === 0 && this.min < 0) {
                     offset = this.getDistanceFromCenterForValue(tick.value);
                     const context = this.getContext(index);
                     const optsAtIndex = grid.setContext(context);
@@ -15839,7 +15640,7 @@ class RadialLinearScale extends LinearScaleBase {
                 ctx.strokeStyle = color;
                 ctx.setLineDash(optsAtIndex.borderDash);
                 ctx.lineDashOffset = optsAtIndex.borderDashOffset;
-                offset = this.getDistanceFromCenterForValue(opts.ticks.reverse ? this.min : this.max);
+                offset = this.getDistanceFromCenterForValue(opts.reverse ? this.min : this.max);
                 position = this.getPointPosition(i, offset);
                 ctx.beginPath();
                 ctx.moveTo(this.xCenter, this.yCenter);
@@ -15865,7 +15666,7 @@ class RadialLinearScale extends LinearScaleBase {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         this.ticks.forEach((tick, index)=>{
-            if (index === 0 && !opts.reverse) {
+            if (index === 0 && this.min >= 0 && !opts.reverse) {
                 return;
             }
             const optsAtIndex = tickOpts.setContext(this.getContext(index));
@@ -15950,7 +15751,7 @@ const INTERVALS = {
         value = parser(value);
     }
     if (!isNumberFinite(value)) {
-        value = typeof parser === 'string' ? adapter.parse(value,  parser) : adapter.parse(value);
+        value = typeof parser === 'string' ? adapter.parse(value, parser) : adapter.parse(value);
     }
     if (value === null) {
         return null;
@@ -17801,10 +17602,13 @@ static getStubConfig(hass, unusedEntities, allEntities) {
   }
   return {
     entity,
+    padding_scale: 0.7,
     show_main: true,
     show_temperature: true,
     show_current_condition: true,
     show_attributes: true,
+    attributes_position: 'row',
+    use_12hour_format: false,
     show_time: false,
     show_time_seconds: false,
     show_day: false,
@@ -17872,8 +17676,18 @@ setConfig(config) {
     show_visibility: false,
     show_last_changed: false,
     show_description: false,
+    attributes_position: 'row',
+    use_12hour_format: false,
     ...config,
+    padding_scale: config.padding_scale === undefined ? 0.7 : Number(config.padding_scale),
     forecast: {
+      labels_bold: false,
+      weekday_format: 'short',
+      grid_line_width: 2,
+      wind_unit_position: 'inline',
+      precipitation_unit_position: 'inline',
+      precipitation_border: true,
+      precipitation_border_color: '',
       precipitation_type: 'rainfall',
       show_probability: false,
       labels_font_size: 11,
@@ -17897,75 +17711,143 @@ setConfig(config) {
     }
   };
 
+  cardConfig.size_offsets = normaliseSizeOffsets(config.size_offsets);
   cardConfig.units.speed = config.speed ? config.speed : cardConfig.units.speed;
+  if ((config.padding_scale !== undefined && (!['number', 'string'].includes(typeof config.padding_scale) || String(config.padding_scale).trim() === '')) ||
+      !Number.isFinite(cardConfig.padding_scale) || cardConfig.padding_scale < 0) {
+    throw new Error('padding_scale must be a non-negative number');
+  }
+  const gridWidth = cardConfig.forecast.grid_line_width;
+  if (!['number', 'string'].includes(typeof gridWidth) || String(gridWidth).trim() === '' || !Number.isFinite(Number(gridWidth)) || Number(gridWidth) < 1) {
+    throw new Error('forecast.grid_line_width must be a finite number of at least 1 px');
+  }
+  cardConfig.forecast.grid_line_width = Number(gridWidth);
+  if (typeof cardConfig.forecast.precipitation_border !== 'boolean') {
+    throw new Error('forecast.precipitation_border must be true or false');
+  }
+  if (typeof cardConfig.forecast.labels_bold !== 'boolean') {
+    throw new Error('forecast.labels_bold must be true or false');
+  }
+  if (!['short', 'long'].includes(cardConfig.forecast.weekday_format)) {
+    throw new Error('forecast.weekday_format must be short or long');
+  }
+  for (const key of ['wind_unit_position', 'precipitation_unit_position']) {
+    if (!['inline', 'below', 'hidden'].includes(cardConfig.forecast[key])) {
+      throw new Error(`forecast.${key} must be inline, below or hidden`);
+    }
+  }
+  if (cardConfig.units.speed && !WIND_SPEED_UNITS.includes(cardConfig.units.speed)) {
+    throw new Error(`Unsupported wind-speed unit: ${cardConfig.units.speed}`);
+  }
+  if (cardConfig.units.pressure && !PRESSURE_UNITS.includes(cardConfig.units.pressure)) throw new Error(`Unsupported pressure unit: ${cardConfig.units.pressure}`);
+  if (cardConfig.units.visibility && !['km', 'mi'].includes(cardConfig.units.visibility)) throw new Error('units.visibility must be km or mi');
+  if (cardConfig.locale) {
+    try { Intl.getCanonicalLocales(cardConfig.locale); }
+    catch (error) { throw new Error(`Invalid locale: ${cardConfig.locale}`); }
+  }
 
-  this.baseIconPath = cardConfig.icon_style === 'style2' ?
-    'https://cdn.jsdelivr.net/gh/mlamberts78/weather-chart-card/dist/icons2/':
-    'https://cdn.jsdelivr.net/gh/mlamberts78/weather-chart-card/dist/icons/' ;
+  this.baseIconPath = new URL(cardConfig.icon_style === 'style2' ? './icons2/' : './icons/', import.meta.url).href;
 
   this.config = cardConfig;
   if (!config.entity) {
     throw new Error('Please, define entity in the card config');
   }
+  if (this._hass) this.hass = this._hass;
 }
 
 set hass(hass) {
   this._hass = hass;
   this.language = this.config.locale || hass.selectedLanguage || hass.language;
   this.sun = 'sun.sun' in hass.states ? hass.states['sun.sun'] : null;
+  this.weather = this.config.entity in hass.states ? hass.states[this.config.entity] : null;
   this.unitSpeed = this.config.units.speed ? this.config.units.speed : this.weather && this.weather.attributes.wind_speed_unit;
   this.unitPressure = this.config.units.pressure ? this.config.units.pressure : this.weather && this.weather.attributes.pressure_unit;
-  this.unitVisibility = this.config.units.visibility ? this.config.units.visibility : this.weather && this.weather.attributes.visibility_unit;
-  this.weather = this.config.entity in hass.states
-    ? hass.states[this.config.entity]
-    : null;
+  this.unitVisibility = this.config.units.visibility || (this.weather && this.weather.attributes.visibility_unit) || hass.config.unit_system.length;
+
 
   if (this.weather) {
-    this.temperature = this.config.temp ? hass.states[this.config.temp].state : this.weather.attributes.temperature;
-    this.humidity = this.config.humid ? hass.states[this.config.humid].state : this.weather.attributes.humidity;
-    this.pressure = this.config.press ? hass.states[this.config.press].state : this.weather.attributes.pressure;
-    this.uv_index = this.config.uv ? hass.states[this.config.uv].state : this.weather.attributes.uv_index;
-    this.windSpeed = this.config.windspeed ? hass.states[this.config.windspeed].state : this.weather.attributes.wind_speed;
-    this.dew_point = this.config.dew_point ? hass.states[this.config.dew_point].state : this.weather.attributes.dew_point;
-    this.wind_gust_speed = this.config.wind_gust_speed ? hass.states[this.config.wind_gust_speed].state : this.weather.attributes.wind_gust_speed;
-    this.visibility = this.config.visibility ? hass.states[this.config.visibility].state : this.weather.attributes.visibility;
+    const temperatureUnit = this.getUnit('temperature');
+    this.temperature = convertTemperature(this.sensorValue(this.config.temp, this.weather.attributes.temperature), this.sensorUnit(this.config.temp, temperatureUnit), temperatureUnit);
+    this.humidity = number$1(this.sensorValue(this.config.humid, this.weather.attributes.humidity));
+    this.pressure = this.sensorValue(this.config.press, this.weather.attributes.pressure);
+    this.uv_index = number$1(this.sensorValue(this.config.uv, this.weather.attributes.uv_index));
+    this.windSpeed = this.sensorValue(this.config.windspeed, this.weather.attributes.wind_speed);
+    this.dew_point = convertTemperature(this.sensorValue(this.config.dew_point, this.weather.attributes.dew_point), this.sensorUnit(this.config.dew_point, temperatureUnit), temperatureUnit);
+    this.wind_gust_speed = this.sensorValue(this.config.wind_gust_speed, this.weather.attributes.wind_gust_speed);
+    const visibilitySource = this.weather.attributes.visibility_unit || hass.config.unit_system.length;
+    this.visibility = convertVisibility(this.sensorValue(this.config.visibility, this.weather.attributes.visibility), this.sensorUnit(this.config.visibility, visibilitySource), this.unitVisibility);
 
-    if (this.config.winddir && hass.states[this.config.winddir] && hass.states[this.config.winddir].state !== undefined) {
-      this.windDirection = parseFloat(hass.states[this.config.winddir].state);
-    } else {
-      this.windDirection = this.weather.attributes.wind_bearing;
-    }
+    this.windDirection = this.config.winddir ? number$1(this.sensorValue(this.config.winddir)) : this.weather.attributes.wind_bearing;
 
-    this.feels_like = this.config.feels_like && hass.states[this.config.feels_like] ? hass.states[this.config.feels_like].state : this.weather.attributes.apparent_temperature;
-    this.description = this.config.description && hass.states[this.config.description] ? hass.states[this.config.description].state : this.weather.attributes.description;
+    this.feels_like = convertTemperature(this.sensorValue(this.config.feels_like, this.weather.attributes.apparent_temperature), this.sensorUnit(this.config.feels_like, temperatureUnit), temperatureUnit);
+    this.description = this.sensorValue(this.config.description, this.weather.attributes.description);
   }
 
-  if (this.weather && !this.forecastSubscriber) {
-    this.subscribeForecastEvents();
-  }
+  if (this.isConnected) this.subscribeForecastEvents();
 }
 
 subscribeForecastEvents() {
-  const forecastType = this.config.forecast.type || 'daily';
-  const isHourly = forecastType === 'hourly';
-
-  const feature = isHourly ? WeatherEntityFeature.FORECAST_HOURLY : WeatherEntityFeature.FORECAST_DAILY;
-  if (!this.supportsFeature(feature)) {
-    console.error(`Weather entity "${this.config.entity}" does not support ${isHourly ? 'hourly' : 'daily'} forecasts.`);
+  if (!this.isConnected || !this._hass || !this.config) return;
+  if (!this.weather) {
+    this.stopForecastSubscription();
     return;
   }
-
+  const forecastType = this.config.forecast.type || 'daily';
+  const isHourly = forecastType === 'hourly';
+  const feature = isHourly ? WeatherEntityFeature.FORECAST_HOURLY : WeatherEntityFeature.FORECAST_DAILY;
+  const supported = this.supportsFeature(feature);
+  const key = `${this.config.entity}:${forecastType}`;
+  const connection = this._hass.connection;
+  if (this._forecastKey === key && this._forecastConnection === connection &&
+      ((supported && this.forecastSubscriber) || (!supported && this._forecastUnsupported))) return;
+  this.stopForecastSubscription();
+  this._forecastKey = key;
+  this._forecastConnection = connection;
+  if (!supported) {
+    this._forecastUnsupported = true;
+    console.warn(`Weather entity "${this.config.entity}" does not support ${forecastType} forecasts.`);
+    return;
+  }
+  const generation = this._forecastGeneration;
   const callback = (event) => {
-    this.forecasts = event.forecast;
+    if (!this.isConnected || generation !== this._forecastGeneration) return;
+    this.forecasts = Array.isArray(event.forecast) ? event.forecast : [];
     this.requestUpdate();
-    this.drawChart();
+    this.updateComplete.then(() => {
+      if (this.isConnected && generation === this._forecastGeneration) this.measureCard();
+    }).catch(error => console.error('Weather Chart Card: forecast render failed', error));
   };
+  try {
+    this.forecastSubscriber = Promise.resolve(connection.subscribeMessage(callback, {
+      type: 'weather/subscribe_forecast', forecast_type: forecastType, entity_id: this.config.entity,
+    }));
+    this.forecastSubscriber.catch(error => {
+      if (generation === this._forecastGeneration) {
+        this.forecastSubscriber = null;
+        this._forecastKey = null;
+        console.error('Weather Chart Card: forecast subscription failed', error);
+      }
+    });
+  } catch (error) {
+    this.forecastSubscriber = null;
+    this._forecastKey = null;
+    console.error('Weather Chart Card: forecast subscription failed', error);
+  }
+}
 
-  this.forecastSubscriber = this._hass.connection.subscribeMessage(callback, {
-    type: "weather/subscribe_forecast",
-    forecast_type: isHourly ? 'hourly' : 'daily',
-    entity_id: this.config.entity,
-  });
+stopForecastSubscription() {
+  this._forecastGeneration += 1;
+  const subscription = this.forecastSubscriber;
+  this.forecastSubscriber = null;
+  this._forecastKey = null;
+  this._forecastConnection = null;
+  this._forecastUnsupported = false;
+  if (subscription) Promise.resolve(subscription).then(unsubscribe => {
+    if (typeof unsubscribe === 'function') return unsubscribe();
+  }).catch(error => console.warn('Weather Chart Card: forecast cleanup failed', error));
+  this.forecasts = [];
+  if (this.forecastChart) this.forecastChart.destroy();
+  this.forecastChart = null;
 }
 
   supportsFeature(feature) {
@@ -17975,39 +17857,51 @@ subscribeForecastEvents() {
   constructor() {
     super();
     this.resizeObserver = null;
-    this.resizeInitialized = false;
+    this.resizeTimeout = null;
+    this.clockInterval = null;
+    this.forecastSubscriber = null;
+    this.autoscrollTimeout = null;
+    this._forecastGeneration = 0;
+    this._forecastKey = null;
+    this._forecastConnection = null;
+    this._forecastUnsupported = false;
   }
 
   connectedCallback() {
     super.connectedCallback();
-    if (!this.resizeInitialized) {
-      this.delayedAttachResizeObserver();
-    }
+    this.delayedAttachResizeObserver();
+    if (this._hass && this.config) this.subscribeForecastEvents();
+    if (this.config && this.config.autoscroll) this.autoscroll();
+    this.requestUpdate();
   }
 
   delayedAttachResizeObserver() {
-    setTimeout(() => {
-      this.attachResizeObserver();
-      this.resizeInitialized = true;
+    if (this.resizeTimeout !== null) clearTimeout(this.resizeTimeout);
+    this.resizeTimeout = setTimeout(() => {
+      this.resizeTimeout = null;
+      if (this.isConnected) this.attachResizeObserver();
     }, 0);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    if (this.resizeTimeout !== null) clearTimeout(this.resizeTimeout);
+    this.resizeTimeout = null;
     this.detachResizeObserver();
-    if (this.forecastSubscriber) {
-      this.forecastSubscriber.then((unsub) => unsub());
-    }
+    this.stopForecastSubscription();
+    this.cancelAutoscroll();
+    if (this.clockInterval !== null) clearInterval(this.clockInterval);
+    this.clockInterval = null;
   }
 
   attachResizeObserver() {
+    this.detachResizeObserver();
+    const card = this.shadowRoot && this.shadowRoot.querySelector('ha-card');
+    if (!card || !this.isConnected) return;
     this.resizeObserver = new ResizeObserver(() => {
       this.measureCard();
     });
-    const card = this.shadowRoot.querySelector('ha-card');
-    if (card) {
-      this.resizeObserver.observe(card);
-    }
+    this.resizeObserver.observe(card);
   }
 
   detachResizeObserver() {
@@ -18019,25 +17913,23 @@ subscribeForecastEvents() {
 
 measureCard() {
   const card = this.shadowRoot.querySelector('ha-card');
-  let fontSize = this.config.forecast.labels_font_size;
+  let fontSize = Math.max(...['forecast_labels', 'forecast_temperature_high', 'forecast_temperature_low', 'forecast_precipitation']
+    .map(key => this.size(key, this.config.forecast.labels_font_size)));
   const numberOfForecasts = this.config.forecast.number_of_forecasts || 0;
 
   if (!card) {
     return;
   }
 
-  this.forecastItems = numberOfForecasts > 0 ? numberOfForecasts : Math.round(card.offsetWidth / (fontSize * 6));
+  this.forecastItems = numberOfForecasts > 0 ? Math.floor(Number(numberOfForecasts)) : Math.max(1, Math.round(card.offsetWidth / (fontSize * 6)));
   this.drawChart();
 }
 
 ll(str) {
   const selectedLocale = this.config.locale || this.language || 'en';
 
-  if (locale[selectedLocale] === undefined) {
-    return locale.en[str];
-  }
-
-  return locale[selectedLocale][str];
+  const dictionary = locale[selectedLocale] || locale[selectedLocale.split('-')[0]] || locale.en;
+  return dictionary[str] === undefined ? locale.en[str] : dictionary[str];
 }
 
   getCardSize() {
@@ -18045,10 +17937,12 @@ ll(str) {
   }
 
   getUnit(unit) {
+    if (unit === 'temperature' && this.weather && this.weather.attributes.temperature_unit) return this.weather.attributes.temperature_unit;
     return this._hass.config.unit_system[unit] || '';
   }
 
   getWeatherIcon(condition, sun) {
+    if (!weatherIconsDay[condition]) return 'mdi:help-circle-outline';
     if (this.config.animated_icons === true) {
       const iconName = sun === 'below_horizon' ? weatherIconsNight[condition] : weatherIconsDay[condition];
       return `${this.baseIconPath}${iconName}.svg`;
@@ -18115,43 +18009,10 @@ getWindDir(deg) {
   }
 }
 
-calculateBeaufortScale(windSpeed) {
-  const unitConversion = {
-    'km/h': 1,
-    'm/s': 3.6,
-    'mph': 1.60934,
-  };
-
-  if (!this.weather || !this.weather.attributes.wind_speed_unit) {
-    throw new Error('wind_speed_unit not available in weather attributes.');
-  }
-
-  const wind_speed_unit = this.weather.attributes.wind_speed_unit;
-  const conversionFactor = unitConversion[wind_speed_unit];
-
-  if (typeof conversionFactor !== 'number') {
-    throw new Error(`Unknown wind_speed_unit: ${wind_speed_unit}`);
-  }
-
-  const windSpeedInKmPerHour = windSpeed * conversionFactor;
-
-  if (windSpeedInKmPerHour < 1) return 0;
-  else if (windSpeedInKmPerHour < 6) return 1;
-  else if (windSpeedInKmPerHour < 12) return 2;
-  else if (windSpeedInKmPerHour < 20) return 3;
-  else if (windSpeedInKmPerHour < 29) return 4;
-  else if (windSpeedInKmPerHour < 39) return 5;
-  else if (windSpeedInKmPerHour < 50) return 6;
-  else if (windSpeedInKmPerHour < 62) return 7;
-  else if (windSpeedInKmPerHour < 75) return 8;
-  else if (windSpeedInKmPerHour < 89) return 9;
-  else if (windSpeedInKmPerHour < 103) return 10;
-  else if (windSpeedInKmPerHour < 118) return 11;
-  else return 12;
-}
-
 async firstUpdated(changedProperties) {
   super.firstUpdated(changedProperties);
+  if (!this.config || !this.isConnected) return;
+  this.attachResizeObserver();
   this.measureCard();
   await new Promise(resolve => setTimeout(resolve, 0));
   this.drawChart();
@@ -18164,41 +18025,24 @@ async firstUpdated(changedProperties) {
 
 async updated(changedProperties) {
   await this.updateComplete;
+  if (!this.isConnected || !this.config) return;
 
   if (changedProperties.has('config')) {
-    const oldConfig = changedProperties.get('config');
-
-    const entityChanged = oldConfig && this.config.entity !== oldConfig.entity;
-    const forecastTypeChanged = oldConfig && this.config.forecast.type !== oldConfig.forecast.type;
-    const autoscrollChanged = oldConfig && this.config.autoscroll !== oldConfig.autoscroll;
-
-    if (entityChanged || forecastTypeChanged) {
-      if (this.forecastSubscriber && typeof this.forecastSubscriber === 'function') {
-        this.forecastSubscriber();
-      }
-
-      this.subscribeForecastEvents();
-    }
-
-    if (this.forecasts && this.forecasts.length) {
-      this.drawChart();
-    }
-
-    if (autoscrollChanged) {
-      if (!this.config.autoscroll) {
-        this.autoscroll();
-      } else {
-        this.cancelAutoscroll();
-      }
-    }
+    this.subscribeForecastEvents();
+    this.measureCard();
   }
 
   if (changedProperties.has('weather')) {
     this.updateChart();
   }
+  if (!this.resizeObserver) this.attachResizeObserver();
+  this.syncClock();
+  if (this.config.autoscroll && this.weather) this.autoscroll();
+  else this.cancelAutoscroll();
 }
 
 autoscroll() {
+  if (!this.isConnected || !this.config || !this.config.autoscroll || !this.weather) return;
   if (this.autoscrollTimeout) {
     // Autscroll already set, nothing to do
     return;
@@ -18214,8 +18058,10 @@ autoscroll() {
     );
     this.autoscrollTimeout = setTimeout(() => {
       this.autoscrollTimeout = null;
+      if (!this.isConnected || !this.config.autoscroll) return;
       this.updateChart();
-      drawChartOncePerHour();
+      this.requestUpdate();
+      updateChartOncePerHour();
     }, nextHour - now);
   };
 
@@ -18226,6 +18072,7 @@ cancelAutoscroll() {
   if (this.autoscrollTimeout) {
     clearTimeout(this.autoscrollTimeout);
   }
+  this.autoscrollTimeout = null;
 }
 
 drawChart({ config, language, weather, forecastItems } = this) {
@@ -18242,7 +18089,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
   if (this.forecastChart) {
     this.forecastChart.destroy();
   }
-  var tempUnit = this._hass.config.unit_system.temperature;
+  var tempUnit = this.getUnit('temperature');
   var lengthUnit = this._hass.config.unit_system.length;
   if (config.forecast.precipitation_type === 'probability') {
     var precipUnit = '%';
@@ -18291,6 +18138,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       yAxisID: 'TempAxis',
       borderColor: config.forecast.temperature1_color,
       backgroundColor: config.forecast.temperature1_color,
+      datalabels: { font: { size: this.size('forecast_temperature_high', config.forecast.labels_font_size), lineHeight: 0.7 } },
     },
     {
       label: this.ll('tempLo'),
@@ -18299,6 +18147,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       yAxisID: 'TempAxis',
       borderColor: config.forecast.temperature2_color,
       backgroundColor: config.forecast.temperature2_color,
+      datalabels: { font: { size: this.size('forecast_temperature_low', config.forecast.labels_font_size), lineHeight: 0.7 } },
     },
     {
       label: this.ll('precip'),
@@ -18310,6 +18159,10 @@ drawChart({ config, language, weather, forecastItems } = this) {
       barPercentage: config.forecast.precip_bar_size / 100,
       categoryPercentage: 1.0,
       datalabels: {
+        font: { size: this.size('forecast_precipitation', config.forecast.labels_font_size), lineHeight: 0.7 },
+        borderWidth: config.forecast.precipitation_border === false ? 0 : 1.5,
+        borderColor: config.forecast.precipitation_border_color || config.forecast.precipitation_color,
+        backgroundColor: config.forecast.precipitation_border === false ? 'transparent' : backgroundColor,
         display: function (context) {
           return context.dataset.data[context.dataIndex] > 0 ? 'true' : false;
         },
@@ -18319,18 +18172,14 @@ drawChart({ config, language, weather, forecastItems } = this) {
         const rainfall = context.dataset.data[context.dataIndex];
         const probability = data.forecast[context.dataIndex].precipitation_probability;
 
-        let formattedValue;
-        if (precipitationType === 'rainfall') {
-          if (probability !== undefined && probability !== null && config.forecast.show_probability) {
-	    formattedValue = `${rainfall > 9 ? Math.round(rainfall) : rainfall.toFixed(1)} ${precipUnit}\n${Math.round(probability)}%`;
-          } else {
-            formattedValue = `${rainfall > 9 ? Math.round(rainfall) : rainfall.toFixed(1)} ${precipUnit}`;
-          }
-        } else {
-          formattedValue = `${rainfall > 9 ? Math.round(rainfall) : rainfall.toFixed(1)} ${precipUnit}`;
+        const amount = rainfall > 9 ? Math.round(rainfall) : rainfall.toFixed(1);
+        const position = config.forecast.precipitation_unit_position;
+        const withUnit = (number, unit, separator = ' ') => position === 'hidden' ? `${number}`
+          : position === 'below' ? `${number}\n${unit}` : `${number}${separator}${unit}`;
+        let formattedValue = withUnit(amount, precipUnit);
+        if (precipitationType === 'rainfall' && probability !== undefined && probability !== null && config.forecast.show_probability) {
+          formattedValue += `\n\n${withUnit(Math.round(probability), '%', '')}`;
         }
-
-        formattedValue = formattedValue.replace('\n', '\n\n');
 
         return formattedValue;
       },
@@ -18338,7 +18187,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
         textBaseline: 'middle',
         align: 'top',
         anchor: 'start',
-        offset: -10,
+        offset: this.space(-10),
       },
     },
   ];
@@ -18359,7 +18208,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       borderColor: 'transparent',
       color: chart_text_color || config.forecast.temperature1_color,
       font: {
-        size: parseInt(config.forecast.labels_font_size) + 1,
+        size: this.size('forecast_temperature_high', parseInt(config.forecast.labels_font_size) + 1),
         lineHeight: 0.7,
       },
     };
@@ -18377,7 +18226,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       borderColor: 'transparent',
       color: chart_text_color || config.forecast.temperature2_color,
       font: {
-        size: parseInt(config.forecast.labels_font_size) + 1,
+        size: this.size('forecast_temperature_low', parseInt(config.forecast.labels_font_size) + 1),
         lineHeight: 0.7,
       },
     };
@@ -18394,55 +18243,80 @@ drawChart({ config, language, weather, forecastItems } = this) {
       animation: config.forecast.disable_animation === true ? { duration: 0 } : {},
       layout: {
         padding: {
-          bottom: 10,
+          bottom: this.space(10),
         },
       },
       scales: {
         x: {
           position: 'top',
+          afterBuildTicks: axis => {
+            if (config.forecast.type !== 'hourly') return;
+            axis.ticks.forEach((tick, index) => {
+              const date = new Date(axis.getLabelForValue(tick.value));
+              const previous = index > 0 ? new Date(axis.getLabelForValue(axis.ticks[index - 1].value)) : null;
+              tick.major = !previous || index === axis.ticks.length - 1 || date.toDateString() !== previous.toDateString() ||
+                (config.use_12hour_format === true && (date.getHours() >= 12) !== (previous.getHours() >= 12));
+            });
+          },
           border: {
             width: 0,
           },
           grid: {
+            display: config.forecast.type !== 'hourly',
             drawTicks: false,
             color: dividerColor,
+            lineWidth: config.forecast.grid_line_width,
           },
           ticks: {
+              autoSkip: config.forecast.type !== 'hourly',
+              major: { enabled: config.forecast.type === 'hourly' },
               maxRotation: 0,
+              font: { size: this.size('forecast_labels', Chart.defaults.font.size), weight: config.forecast.labels_bold ? 'bold' : 'normal' },
               color: config.forecast.chart_datetime_color || textColor,
-              padding: config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 4 : 10,
+              padding: this.space(config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 4 : 10),
               callback: function (value, index, values) {
                   var datetime = this.getLabelForValue(value);
                   var dateObj = new Date(datetime);
         
-                  var timeFormatOptions = {
-                      hour12: config.use_12hour_format,
-                      hour: 'numeric',
-                      ...(config.use_12hour_format ? {} : { minute: 'numeric' }),
-                  };
-
-                  var time = dateObj.toLocaleTimeString(language, timeFormatOptions);
-
-                  if (dateObj.getHours() === 0 && dateObj.getMinutes() === 0 && config.forecast.type === 'hourly') {
-                      var dateFormatOptions = {
-                          day: 'numeric',
-                          month: 'short',
-                      };
-                      var date = dateObj.toLocaleDateString(language, dateFormatOptions);
-                      time = time.replace('a.m.', 'AM').replace('p.m.', 'PM');
-                      return [date, time];
-                  }
-
                   if (config.forecast.type !== 'hourly') {
-                      var weekday = dateObj.toLocaleString(language, { weekday: 'short' }).toUpperCase();
-                      return weekday;
+                      return dateObj.toLocaleString(language, { weekday: config.forecast.weekday_format });
                   }
 
-                  time = time.replace('a.m.', 'AM').replace('p.m.', 'PM');
-                  return time;
+                  const use12Hour = config.use_12hour_format === true;
+                  const hour = new Intl.DateTimeFormat(language, {
+                      hour: 'numeric', hourCycle: use12Hour ? 'h12' : 'h23',
+                  }).formatToParts(dateObj).find(part => part.type === 'hour').value;
+                  const previous = index > 0 ? new Date(this.getLabelForValue(values[index - 1].value)) : null;
+                  const isPM = dateObj.getHours() >= 12;
+                  const periodChanged = !previous || isPM !== (previous.getHours() >= 12) || dateObj.toDateString() !== previous.toDateString();
+                  const showDate = (dateObj.getHours() === 0 && dateObj.getMinutes() === 0) ||
+                      (previous && dateObj.toDateString() !== previous.toDateString());
+                  const date = showDate ? dateObj.toLocaleDateString(language, { day: 'numeric', month: 'short' }) : '';
+                  const period = use12Hour && periodChanged ? (isPM ? 'PM' : 'AM') : '';
+                  // Always reserve the same two rows. Share the upper row instead
+                  // of repeating minutes or AM/PM on every hourly tick.
+                  return [[date, period].filter(Boolean).join(' · '), hour];
               },
           },
           reverse: document.dir === 'rtl' ? true : false,
+        },
+        // Hour labels may be skipped, but forecast columns must never be.
+        // A zero-height category axis keeps the grid on the complete data set.
+        ForecastGrid: {
+          axis: 'x',
+          type: 'category',
+          position: 'top',
+          display: config.forecast.type === 'hourly',
+          offset: true,
+          reverse: document.dir === 'rtl',
+          border: { display: false },
+          grid: {
+            offset: true,
+            drawTicks: false,
+            color: dividerColor,
+            lineWidth: config.forecast.grid_line_width,
+          },
+          ticks: { display: false, autoSkip: false },
         },
         TempAxis: {
           position: 'left',
@@ -18478,7 +18352,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
           borderColor: context => context.dataset.backgroundColor,
           borderRadius: 0,
           borderWidth: 1.5,
-          padding: config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 3 : 4,
+          padding: this.space(config.forecast.precipitation_type === 'rainfall' && config.forecast.show_probability && config.forecast.type !== 'hourly' ? 3 : 4),
           color: chart_text_color || textColor,
           font: {
             size: config.forecast.labels_font_size,
@@ -18489,8 +18363,10 @@ drawChart({ config, language, weather, forecastItems } = this) {
           },
         },
         tooltip: {
+          titleFont: { size: this.size('tooltip_title', Chart.defaults.font.size) },
+          bodyFont: { size: this.size('tooltip_body', Chart.defaults.font.size) },
           caretSize: 0,
-          caretPadding: 15,
+          caretPadding: this.space(15),
           callbacks: {
             title: function (TooltipItem) {
               var datetime = TooltipItem[0].label;
@@ -18522,8 +18398,18 @@ drawChart({ config, language, weather, forecastItems } = this) {
   });
 }
 
-computeForecastData({ config, forecastItems } = this) {
-  var forecast = this.forecasts ? this.forecasts.slice(0, forecastItems) : [];
+selectedForecasts() {
+  let forecast = Array.isArray(this.forecasts) ? this.forecasts : [];
+  if (this.config.autoscroll) {
+    const cutoff = (this.config.forecast.type === 'hourly' ? 1 : 24) * 60 * 60 * 1000;
+    const now = Date.now();
+    forecast = forecast.filter(item => Number.isFinite(Date.parse(item.datetime)) && now - Date.parse(item.datetime) <= cutoff);
+  }
+  return forecast.slice(0, Math.max(0, Number(this.forecastItems) || 0));
+}
+
+computeForecastData({ config } = this) {
+  var forecast = this.selectedForecasts();
   var roundTemp = config.forecast.round_temp == true;
   var dateTime = [];
   var tempHigh = [];
@@ -18532,12 +18418,7 @@ computeForecastData({ config, forecastItems } = this) {
 
   for (var i = 0; i < forecast.length; i++) {
     var d = forecast[i];
-    if (config.autoscroll) {
-      const cutoff = (config.forecast.type === 'hourly' ? 1 : 24) * 60 * 60 * 1000;
-      if (new Date() - new Date(d.datetime) > cutoff) {
-        continue;
-      }
-    }
+
     dateTime.push(d.datetime);
     tempHigh.push(d.temperature);
     if (typeof d.templow !== 'undefined') {
@@ -18582,6 +18463,69 @@ updateChart({ forecasts, forecastChart } = this) {
   }
 }
 
+  space(pixels) {
+    return pixels * this.config.padding_scale;
+  }
+
+  windSourceUnit(entity) {
+    return this.sensorUnit(entity, this.weather.attributes.wind_speed_unit);
+  }
+
+  sensorValue(entity, fallback) {
+    const sensor = entity && this._hass.states[entity];
+    return entity ? sensor && sensor.state : fallback;
+  }
+
+  sensorUnit(entity, fallback) {
+    const sensor = entity && this._hass.states[entity];
+    return (sensor && sensor.attributes.unit_of_measurement) || fallback;
+  }
+
+  windUnit() {
+    return this.ll('units')[this.unitSpeed] || this.unitSpeed || '';
+  }
+
+  cardStyle() {
+    const styles = [this.titleStyle()];
+    if (this.config.padding_scale !== 1) {
+      const theme = getComputedStyle(this);
+      for (const [key, fallback] of [['--ha-space-4', '16px'], ['--ha-space-5', '20px'], ['--ha-space-6', '24px']]) {
+        styles.push(`${key}: calc(${theme.getPropertyValue(key) || fallback} * ${this.config.padding_scale})`);
+      }
+    }
+    return styles.filter(Boolean).join(';');
+  }
+
+  offset(key) {
+    return this.config.size_offsets[key] || 0;
+  }
+
+  size(key, base) {
+    return Math.max(1, Number(base) + this.offset(key));
+  }
+
+  sizedText(key, value, base) {
+    const fontSize = base === undefined
+      ? `max(1px, calc(1em + ${this.offset(key)}px))`
+      : `${this.size(key, base)}px`;
+    return x`<span data-size=${key} style="font-size: ${fontSize}">${value}</span>`;
+  }
+
+  sizedIcon(key, icon) {
+    return x`<ha-icon data-size=${key} icon=${icon} style="--mdc-icon-size: ${this.size(key, 24)}px"></ha-icon>`;
+  }
+
+  titleStyle() {
+    if (!this.offset('title')) return '';
+    const base = getComputedStyle(this).getPropertyValue('--ha-card-header-font-size') || '24px';
+    return `--ha-card-header-font-size: max(1px, calc(${base} + ${this.offset('title')}px))`;
+  }
+
+  get attributesInHeader() {
+    return this.config.show_main !== false && this.config.show_attributes !== false &&
+      ['center', 'left'].includes(this.config.attributes_position);
+  }
+
   render({config, _hass, weather} = this) {
     if (!config || !_hass) {
       return x``;
@@ -18590,15 +18534,15 @@ updateChart({ forecasts, forecastChart } = this) {
       return x`
         <style>
           .card {
-            padding-top: ${config.title? '0px' : '16px'};
-            padding-right: 16px;
-            padding-bottom: 16px;
-            padding-left: 16px;
+            padding-top: ${config.title ? 0 : this.space(16)}px;
+            padding-right: ${this.space(16)}px;
+            padding-bottom: ${this.space(16)}px;
+            padding-left: ${this.space(16)}px;
           }
         </style>
-        <ha-card header="${config.title}">
+        <ha-card header="${config.title}" style=${this.cardStyle()}>
           <div class="card">
-            Please, check your weather entity
+            ${this.sizedText('error_text', 'Please, check your weather entity')}
           </div>
         </ha-card>
       `;
@@ -18609,33 +18553,33 @@ updateChart({ forecasts, forecastChart } = this) {
           color: var(--paper-item-icon-color);
         }
         img {
-          width: ${config.icons_size}px;
-          height: ${config.icons_size}px;
+          width: ${this.size('forecast_condition_icon', config.icons_size)}px;
+          height: ${this.size('forecast_condition_icon', config.icons_size)}px;
         }
         .card {
-          padding-top: ${config.title ? '0px' : '16px'};
-          padding-right: 16px;
-          padding-bottom: ${config.show_last_changed === true ? '2px' : '16px'};
-          padding-left: 16px;
+          padding-top: ${config.title ? 0 : this.space(16)}px;
+          padding-right: ${this.space(16)}px;
+          padding-bottom: ${this.space(config.show_last_changed === true ? 2 : 16)}px;
+          padding-left: ${this.space(16)}px;
         }
         .main {
           display: flex;
           align-items: center;
-          font-size: ${config.current_temp_size}px;
-          margin-bottom: 10px;
+          font-size: ${this.size('current_temperature', config.current_temp_size)}px;
+          margin-bottom: ${this.space(10)}px;
         }
         .main ha-icon {
-          --mdc-icon-size: 50px;
-          margin-right: 14px;
+          --mdc-icon-size: ${this.size('current_icon', 50)}px;
+          margin-right: ${this.space(14)}px;
           margin-inline-start: initial;
-          margin-inline-end: 14px;
+          margin-inline-end: ${this.space(14)}px;
         }
         .main img {
-          width: ${config.icons_size * 2}px;
-          height: ${config.icons_size * 2}px;
-          margin-right: 14px;
+          width: ${this.size('current_icon', config.icons_size * 2)}px;
+          height: ${this.size('current_icon', config.icons_size * 2)}px;
+          margin-right: ${this.space(14)}px;
           margin-inline-start: initial;
-          margin-inline-end: 14px;
+          margin-inline-end: ${this.space(14)}px;
         }
         .main div {
           line-height: 0.9;
@@ -18648,9 +18592,47 @@ updateChart({ forecasts, forecastChart } = this) {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 6px;
+          margin-bottom: ${this.space(6)}px;
       	  font-weight: 300;
           direction: ltr;
+        }
+        .header--center,
+        .header--left {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          column-gap: ${this.space(16)}px;
+          align-items: center;
+          margin-bottom: ${this.space(10)}px;
+        }
+        .header--center .main,
+        .header--left .main {
+          margin-bottom: 0;
+          min-width: 0;
+        }
+        .header--center > .attributes,
+        .header--left > .attributes {
+          grid-column: 2;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: ${this.space(16)}px;
+          min-width: 0;
+          margin-bottom: 0;
+        }
+        .header--left > .attributes {
+          justify-content: flex-start;
+        }
+        .header--center > .attributes > div,
+        .header--left > .attributes > div {
+          max-width: 100%;
+          overflow-wrap: anywhere;
+        }
+        .header--center > .current-time,
+        .header--left > .current-time {
+          grid-column: 3;
+          position: static;
+          justify-self: end;
+          line-height: 0.9;
+          white-space: nowrap;
         }
         .chart-container {
           position: relative;
@@ -18662,14 +18644,17 @@ updateChart({ forecasts, forecastChart } = this) {
           display: flex;
           justify-content: space-around;
           align-items: center;
-          margin: 0px 5px 0px 5px;
+          margin: 0px ${this.space(5)}px 0px ${this.space(5)}px;
       	  cursor: pointer;
         }
         .forecast-item {
           display: flex;
           flex-direction: column;
           align-items: center;
-          margin: 1px;
+          margin: ${this.space(1)}px;
+        }
+        .forecast-item ha-icon {
+          --mdc-icon-size: ${this.size('forecast_condition_icon', 24)}px;
         }
         .wind-details {
           display: flex;
@@ -18680,40 +18665,54 @@ updateChart({ forecasts, forecastChart } = this) {
         .wind-detail {
           display: flex;
           align-items: center;
-          margin: 1px;
+          margin: ${this.space(1)}px;
+        }
+        .wind-values {
+          display: flex;
+          align-items: center;
+        }
+        .wind-values--below {
+          flex-direction: column;
+        }
+        .wind-detail--below {
+          align-items: flex-start;
+        }
+        .wind-values--below .wind-speed,
+        .wind-values--below .wind-unit {
+          margin: 0;
         }
         .wind-detail ha-icon {
-          --mdc-icon-size: 15px;
-          margin-right: 1px;
+          --mdc-icon-size: ${this.size('forecast_wind_icon', 15)}px;
+          margin-right: ${this.space(1)}px;
           margin-inline-start: initial;
-          margin-inline-end: 1px;
+          margin-inline-end: ${this.space(1)}px;
         }
         .wind-icon {
-          margin-right: 1px;
+          margin-right: ${this.space(1)}px;
           margin-inline-start: initial;
-          margin-inline-end: 1px;
+          margin-inline-end: ${this.space(1)}px;
           position: relative;
 	        bottom: 1px;
         }
         .wind-speed {
-          font-size: 11px;
-          margin-right: 1px;
+          font-size: ${this.size('forecast_wind_speed', 11)}px;
+          margin-right: ${this.space(1)}px;
           margin-inline-start: initial;
-          margin-inline-end: 1px;
+          margin-inline-end: ${this.space(1)}px;
         }
         .wind-unit {
-          font-size: 9px;
-          margin-left: 1px;
-          margin-inline-start: 1px;
+          font-size: ${this.size('forecast_wind_unit', 9)}px;
+          margin-left: ${this.space(1)}px;
+          margin-inline-start: ${this.space(1)}px;
           margin-inline-end: initial;
         }
         .current-time {
           position: absolute;
-          top: 20px;
-          right: 16px;
+          top: ${this.space(20)}px;
+          right: ${this.space(16)}px;
           inset-inline-start: initial;
-          inset-inline-end: 16px;
-          font-size: ${config.time_size}px;
+          inset-inline-end: ${this.space(16)}px;
+          font-size: ${this.size('current_time', config.time_size)}px;
         }
         .date-text {
           font-size: ${config.day_date_size}px;
@@ -18721,27 +18720,27 @@ updateChart({ forecasts, forecastChart } = this) {
         }
         .main .feels-like {
           font-size: 13px;
-          margin-top: 5px;
+          margin-top: ${this.space(5)}px;
           font-weight: 400;
         }
         .main .description {
 	  font-style: italic;
           font-size: 13px;
-          margin-top: 5px;
+          margin-top: ${this.space(5)}px;
           font-weight: 400;
         }
         .updated {
           font-size: 13px;
           align-items: right;
           font-weight: 300;
-          margin-bottom: 1px;
+          margin-bottom: ${this.space(1)}px;
         }
       </style>
 
-      <ha-card header="${config.title}">
+      <ha-card header="${config.title}" style=${this.cardStyle()}>
         <div class="card">
           ${this.renderMain()}
-          ${this.renderAttributes()}
+          ${this.attributesInHeader ? '' : this.renderAttributes()}
           <div class="chart-container">
             <canvas id="forecastChart"></canvas>
           </div>
@@ -18753,11 +18752,37 @@ updateChart({ forecasts, forecastChart } = this) {
     `;
   }
 
+syncClock() {
+  const enabled = this.isConnected && this.config && this.config.show_main !== false &&
+    this.config.show_time && this.shadowRoot.querySelector('#digital-clock');
+  if (!enabled) {
+    if (this.clockInterval !== null) clearInterval(this.clockInterval);
+    this.clockInterval = null;
+    return;
+  }
+  this.updateClock();
+  if (this.clockInterval === null) this.clockInterval = setInterval(() => this.updateClock(), 1000);
+}
+
+updateClock() {
+  const header = this.shadowRoot && this.shadowRoot.querySelector('.header');
+  if (!header || !this.config) return;
+  const date = new Date();
+  const clock = header.querySelector('#digital-clock');
+  if (clock) clock.textContent = date.toLocaleTimeString(this.language, {
+    hour12: this.config.use_12hour_format, hour: 'numeric', minute: 'numeric',
+    second: this.config.show_time_seconds === true ? 'numeric' : undefined,
+  });
+  const day = header.querySelector('.date-text.day');
+  if (day) day.textContent = date.toLocaleString(this.language, { weekday: 'long' }).toUpperCase();
+  const dateElement = header.querySelector('.date-text.date');
+  if (dateElement) dateElement.textContent = date.toLocaleDateString(this.language, { month: 'long', day: 'numeric' });
+}
+
 renderMain({ config, sun, weather, temperature, feels_like, description } = this) {
   if (config.show_main === false)
     return x``;
 
-  const use12HourFormat = config.use_12hour_format;
   const showTime = config.show_time;
   const showDay = config.show_day;
   const showDate = config.show_date;
@@ -18765,7 +18790,7 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
   const showDescription = config.show_description;
   const showCurrentCondition = config.show_current_condition !== false;
   const showTemperature = config.show_temperature !== false;
-  const showSeconds = config.show_time_seconds === true;
+
 
   let roundedTemperature = parseFloat(temperature);
   if (!isNaN(roundedTemperature) && roundedTemperature % 1 !== 0) {
@@ -18777,141 +18802,57 @@ renderMain({ config, sun, weather, temperature, feels_like, description } = this
     roundedFeelsLike = Math.round(roundedFeelsLike * 10) / 10;
   }
 
-  const iconHtml = config.animated_icons || config.icons
-    ? x`<img src="${this.getWeatherIcon(weather.state, sun.state)}" alt="">`
-    : x`<ha-icon icon="${this.getWeatherIcon(weather.state, sun.state)}"></ha-icon>`;
+  const iconHtml = (config.animated_icons || config.icons) && weatherIconsDay[weather.state]
+    ? x`<img data-size="current_icon" src="${this.getWeatherIcon(weather.state, sun && sun.state)}" alt="">`
+    : x`<ha-icon data-size="current_icon" icon="${this.getWeatherIcon(weather.state, sun && sun.state)}"></ha-icon>`;
 
-  const updateClock = () => {
-    const currentDate = new Date();
-    const timeOptions = {
-      hour12: use12HourFormat,
-      hour: 'numeric',
-      minute: 'numeric',
-      second: showSeconds ? 'numeric' : undefined
-    };
-    const currentTime = currentDate.toLocaleTimeString(this.language, timeOptions);
-    const currentDayOfWeek = currentDate.toLocaleString(this.language, { weekday: 'long' }).toUpperCase();
-    const currentDateFormatted = currentDate.toLocaleDateString(this.language, { month: 'long', day: 'numeric' });
-
-    const mainDiv = this.shadowRoot.querySelector('.main');
-    if (mainDiv) {
-      const clockElement = mainDiv.querySelector('#digital-clock');
-      if (clockElement) {
-        clockElement.textContent = currentTime;
-      }
-      if (showDay) {
-        const dayElement = mainDiv.querySelector('.date-text.day');
-        if (dayElement) {
-          dayElement.textContent = currentDayOfWeek;
-        }
-      }
-      if (showDate) {
-        const dateElement = mainDiv.querySelector('.date-text.date');
-        if (dateElement) {
-          dateElement.textContent = currentDateFormatted;
-        }
-      }
-    }
-  };
-
-  updateClock();
-
-  if (showTime) {
-    setInterval(updateClock, 1000);
-  }
+  const clockHtml = showTime ? x`
+    <div class="current-time">
+      <div id="digital-clock" data-size="current_time"></div>
+      ${showDay ? x`<div class="date-text day" data-size="current_day" style="font-size: ${this.size('current_day', config.day_date_size)}px"></div>` : ''}
+      ${showDay && showDate ? x` ` : ''}
+      ${showDate ? x`<div class="date-text date" data-size="current_date" style="font-size: ${this.size('current_date', config.day_date_size)}px"></div>` : ''}
+    </div>
+  ` : '';
 
   return x`
+    <div class="header ${this.attributesInHeader ? `header--${config.attributes_position}` : ''}">
     <div class="main">
       ${iconHtml}
       <div>
         <div>
-          ${showTemperature ? x`${roundedTemperature}<span>${this.getUnit('temperature')}</span>` : ''}
-          ${showFeelsLike && roundedFeelsLike ? x`
+          ${showTemperature ? x`${this.sizedText('current_temperature', Number.isFinite(roundedTemperature) ? roundedTemperature : '—', config.current_temp_size)}${this.sizedText('current_temperature_unit', this.getUnit('temperature'), 18)}` : ''}
+          ${showFeelsLike && Number.isFinite(roundedFeelsLike) ? x`
             <div class="feels-like">
-              ${this.ll('feelsLike')}
-              ${roundedFeelsLike}${this.getUnit('temperature')}
+              ${this.sizedText('feels_like_label', this.ll('feelsLike'), 13)}
+              ${this.sizedText('feels_like_value', roundedFeelsLike, 13)}${this.sizedText('feels_like_unit', this.getUnit('temperature'), 13)}
             </div>
           ` : ''}
           ${showCurrentCondition ? x`
             <div class="current-condition">
-              <span>${this.ll(weather.state)}</span>
+              ${this.sizedText('current_condition', this.ll(weather.state) || weather.state, 18)}
             </div>
           ` : ''}
           ${showDescription ? x`
             <div class="description">
-              ${description}
+              ${this.sizedText('description', description, 13)}
             </div>
           ` : ''}
         </div>
-        ${showTime ? x`
-          <div class="current-time">
-            <div id="digital-clock"></div>
-            ${showDay ? x`<div class="date-text day"></div>` : ''}
-            ${showDay && showDate ? x` ` : ''}
-            ${showDate ? x`<div class="date-text date"></div>` : ''}
-          </div>
-        ` : ''}
+        ${this.attributesInHeader ? '' : clockHtml}
       </div>
+    </div>
+    ${this.attributesInHeader ? this.renderAttributes() : ''}
+    ${this.attributesInHeader ? clockHtml : ''}
     </div>
   `;
 }
 
 renderAttributes({ config, humidity, pressure, windSpeed, windDirection, sun, language, uv_index, dew_point, wind_gust_speed, visibility } = this) {
-  let dWindSpeed = windSpeed;
-  let dPressure = pressure;
-
-  if (this.unitSpeed !== this.weather.attributes.wind_speed_unit) {
-    if (this.unitSpeed === 'm/s') {
-      if (this.weather.attributes.wind_speed_unit === 'km/h') {
-        dWindSpeed = Math.round(windSpeed * 1000 / 3600);
-      } else if (this.weather.attributes.wind_speed_unit === 'mph') {
-        dWindSpeed = Math.round(windSpeed * 0.44704);
-      }
-    } else if (this.unitSpeed === 'km/h') {
-      if (this.weather.attributes.wind_speed_unit === 'm/s') {
-        dWindSpeed = Math.round(windSpeed * 3.6);
-      } else if (this.weather.attributes.wind_speed_unit === 'mph') {
-        dWindSpeed = Math.round(windSpeed * 1.60934);
-      }
-    } else if (this.unitSpeed === 'mph') {
-      if (this.weather.attributes.wind_speed_unit === 'm/s') {
-        dWindSpeed = Math.round(windSpeed / 0.44704);
-      } else if (this.weather.attributes.wind_speed_unit === 'km/h') {
-        dWindSpeed = Math.round(windSpeed / 1.60934);
-      }
-    } else if (this.unitSpeed === 'Bft') {
-      dWindSpeed = this.calculateBeaufortScale(windSpeed);
-    }
-  } else {
-    dWindSpeed = Math.round(dWindSpeed);
-  }
-
-  if (this.unitPressure !== this.weather.attributes.pressure_unit) {
-    if (this.unitPressure === 'mmHg') {
-      if (this.weather.attributes.pressure_unit === 'hPa') {
-        dPressure = Math.round(pressure * 0.75006);
-      } else if (this.weather.attributes.pressure_unit === 'inHg') {
-        dPressure = Math.round(pressure * 25.4);
-      }
-    } else if (this.unitPressure === 'hPa') {
-      if (this.weather.attributes.pressure_unit === 'mmHg') {
-        dPressure = Math.round(pressure / 0.75006);
-      } else if (this.weather.attributes.pressure_unit === 'inHg') {
-        dPressure = Math.round(pressure * 33.8639);
-      }
-    } else if (this.unitPressure === 'inHg') {
-      if (this.weather.attributes.pressure_unit === 'mmHg') {
-        dPressure = pressure / 25.4;
-      } else if (this.weather.attributes.pressure_unit === 'hPa') {
-        dPressure = pressure / 33.8639;
-      }
-      dPressure = dPressure.toFixed(2);
-    }
-  } else {
-    if (this.unitPressure === 'hPa' || this.unitPressure === 'mmHg') {
-      dPressure = Math.round(dPressure);
-    }
-  }
+  const dWindSpeed = convertWindSpeed(windSpeed, this.windSourceUnit(config.windspeed), this.unitSpeed);
+  const dWindGust = convertWindSpeed(wind_gust_speed, this.windSourceUnit(config.wind_gust_speed), this.unitSpeed);
+  const pressureSource = this.weather.attributes.pressure_unit || this._hass.config.unit_system.pressure;
+  const dPressure = convertPressure(pressure, this.sensorUnit(config.press, pressureSource), this.unitPressure);
 
   if (config.show_attributes == false)
     return x``;
@@ -18930,16 +18871,16 @@ return x`
       ${((showHumidity && humidity !== undefined) || (showPressure && dPressure !== undefined) || (showDewpoint && dew_point !== undefined) || (showVisibility && visibility !== undefined)) ? x`
         <div>
           ${showHumidity && humidity !== undefined ? x`
-            <ha-icon icon="hass:water-percent"></ha-icon> ${humidity} %<br>
+            ${this.sizedIcon('humidity_icon', 'hass:water-percent')} ${this.sizedText('humidity_value', humidity)} ${this.sizedText('humidity_unit', '%')}<br>
           ` : ''}
           ${showPressure && dPressure !== undefined ? x`
-            <ha-icon icon="hass:gauge"></ha-icon> ${dPressure} ${this.ll('units')[this.unitPressure]} <br>
+            ${this.sizedIcon('pressure_icon', 'hass:gauge')} ${this.sizedText('pressure_value', dPressure)} ${this.sizedText('pressure_unit', this.ll('units')[this.unitPressure] || this.unitPressure)} <br>
           ` : ''}
           ${showDewpoint && dew_point !== undefined ? x`
-            <ha-icon icon="hass:thermometer-water"></ha-icon> ${dew_point} ${this.weather.attributes.temperature_unit} <br>
+            ${this.sizedIcon('dew_point_icon', 'hass:thermometer-water')} ${this.sizedText('dew_point_value', dew_point)} ${this.sizedText('dew_point_unit', this.getUnit('temperature'))} <br>
           ` : ''}
           ${showVisibility && visibility !== undefined ? x`
-            <ha-icon icon="hass:eye"></ha-icon> ${visibility} ${this.weather.attributes.visibility_unit}
+            ${this.sizedIcon('visibility_icon', 'hass:eye')} ${this.sizedText('visibility_value', visibility)} ${this.sizedText('visibility_unit', this.unitVisibility)}
           ` : ''}
         </div>
       ` : ''}
@@ -18947,7 +18888,7 @@ return x`
         <div>
           ${typeof uv_index !== 'undefined' && uv_index !== undefined ? x`
             <div>
-              <ha-icon icon="hass:white-balance-sunny"></ha-icon> UV: ${Math.round(uv_index * 10) / 10}
+              ${this.sizedIcon('uv_icon', 'hass:white-balance-sunny')} ${this.sizedText('uv_label', 'UV:')} ${this.sizedText('uv_value', Math.round(uv_index * 10) / 10)}
             </div>
           ` : ''}
           ${showSun && sun !== undefined ? x`
@@ -18957,18 +18898,18 @@ return x`
           ` : ''}
         </div>
       ` : ''}
-      ${((showWindDirection && windDirection !== undefined) || (showWindSpeed && dWindSpeed !== undefined)) ? x`
+      ${((showWindDirection && windDirection !== undefined) || (showWindSpeed && dWindSpeed !== undefined) || (showWindgustspeed && dWindGust !== undefined)) ? x`
         <div>
           ${showWindDirection && windDirection !== undefined ? x`
-            <ha-icon icon="hass:${this.getWindDirIcon(windDirection)}"></ha-icon> ${this.getWindDir(windDirection)} <br>
+            ${this.sizedIcon('wind_direction_icon', `hass:${this.getWindDirIcon(windDirection)}`)} ${this.sizedText('wind_direction_value', this.getWindDir(windDirection))} <br>
           ` : ''}
           ${showWindSpeed && dWindSpeed !== undefined ? x`
-            <ha-icon icon="hass:weather-windy"></ha-icon>
-            ${dWindSpeed} ${this.ll('units')[this.unitSpeed]} <br>
+            ${this.sizedIcon('wind_speed_icon', 'hass:weather-windy')}
+            ${this.sizedText('wind_speed_value', dWindSpeed)} ${this.sizedText('wind_speed_unit', this.windUnit())} <br>
           ` : ''}
-          ${showWindgustspeed && wind_gust_speed !== undefined ? x`
-            <ha-icon icon="hass:weather-windy-variant"></ha-icon>
-            ${wind_gust_speed} ${this.ll('units')[this.unitSpeed]}
+          ${showWindgustspeed && dWindGust !== undefined ? x`
+            ${this.sizedIcon('wind_gust_icon', 'hass:weather-windy-variant')}
+            ${this.sizedText('wind_gust_value', dWindGust)} ${this.sizedText('wind_gust_unit', this.windUnit())}
           ` : ''}
         </div>
       ` : ''}
@@ -18989,15 +18930,15 @@ const timeOptions = {
 };
 
   return x`
-    <ha-icon icon="mdi:weather-sunset-up"></ha-icon>
-      ${new Date(sun.attributes.next_rising).toLocaleTimeString(language, timeOptions)}<br>
-    <ha-icon icon="mdi:weather-sunset-down"></ha-icon>
-      ${new Date(sun.attributes.next_setting).toLocaleTimeString(language, timeOptions)}
+    ${this.sizedIcon('sunrise_icon', 'mdi:weather-sunset-up')}
+      ${this.sizedText('sunrise_time', new Date(sun.attributes.next_rising).toLocaleTimeString(language, timeOptions))}<br>
+    ${this.sizedIcon('sunset_icon', 'mdi:weather-sunset-down')}
+      ${this.sizedText('sunset_time', new Date(sun.attributes.next_setting).toLocaleTimeString(language, timeOptions))}
   `;
 }
 
-renderForecastConditionIcons({ config, forecastItems, sun } = this) {
-  const forecast = this.forecasts ? this.forecasts.slice(0, forecastItems) : [];
+renderForecastConditionIcons({ config, sun } = this) {
+  const forecast = this.selectedForecasts();
 
   if (config.forecast.condition_icons === false) {
     return x``;
@@ -19007,27 +18948,15 @@ renderForecastConditionIcons({ config, forecastItems, sun } = this) {
     <div class="conditions" @click="${(e) => this.showMoreInfo(config.entity)}">
       ${forecast.map((item) => {
         const forecastTime = new Date(item.datetime);
-        const sunriseTime = new Date(sun.attributes.next_rising);
-        const sunsetTime = new Date(sun.attributes.next_setting);
-
-        // Adjust sunrise and sunset times to match the date of forecastTime
-        const adjustedSunriseTime = new Date(forecastTime);
-        adjustedSunriseTime.setHours(sunriseTime.getHours());
-        adjustedSunriseTime.setMinutes(sunriseTime.getMinutes());
-        adjustedSunriseTime.setSeconds(sunriseTime.getSeconds());
-
-        const adjustedSunsetTime = new Date(forecastTime);
-        adjustedSunsetTime.setHours(sunsetTime.getHours());
-        adjustedSunsetTime.setMinutes(sunsetTime.getMinutes());
-        adjustedSunsetTime.setSeconds(sunsetTime.getSeconds());
-
-        let isDayTime;
-
-        if (config.forecast.type === 'daily') {
-          // For daily forecast, assume it's day time
-          isDayTime = true;
-        } else {
-          // For other forecast types, determine based on sunrise and sunset times
+        const sunriseTime = sun && sun.attributes.next_rising ? new Date(sun.attributes.next_rising) : null;
+        const sunsetTime = sun && sun.attributes.next_setting ? new Date(sun.attributes.next_setting) : null;
+        let isDayTime = item.condition !== 'clear-night';
+        if (config.forecast.type !== 'daily' && sunriseTime && sunsetTime &&
+            Number.isFinite(sunriseTime.getTime()) && Number.isFinite(sunsetTime.getTime())) {
+          const adjustedSunriseTime = new Date(forecastTime);
+          adjustedSunriseTime.setHours(sunriseTime.getHours(), sunriseTime.getMinutes(), sunriseTime.getSeconds());
+          const adjustedSunsetTime = new Date(forecastTime);
+          adjustedSunsetTime.setHours(sunsetTime.getHours(), sunsetTime.getMinutes(), sunsetTime.getSeconds());
           isDayTime = forecastTime >= adjustedSunriseTime && forecastTime <= adjustedSunsetTime;
         }
 
@@ -19036,13 +18965,13 @@ renderForecastConditionIcons({ config, forecastItems, sun } = this) {
 
         let iconHtml;
 
-        if (config.animated_icons || config.icons) {
+        if ((config.animated_icons || config.icons) && weatherIcons[condition]) {
           const iconSrc = config.animated_icons ?
             `${this.baseIconPath}${weatherIcons[condition]}.svg` :
             `${this.config.icons}${weatherIcons[condition]}.svg`;
-          iconHtml = x`<img class="icon" src="${iconSrc}" alt="">`;
+          iconHtml = x`<img class="icon" data-size="forecast_condition_icon" src="${iconSrc}" alt="">`;
         } else {
-          iconHtml = x`<ha-icon icon="${this.getWeatherIcon(condition, sun.state)}"></ha-icon>`;
+          iconHtml = x`<ha-icon data-size="forecast_condition_icon" icon="${this.getWeatherIcon(condition, sun && sun.state)}"></ha-icon>`;
         }
 
         return x`
@@ -19055,52 +18984,28 @@ renderForecastConditionIcons({ config, forecastItems, sun } = this) {
   `;
 }
 
-renderWind({ config, weather, windSpeed, windDirection, forecastItems } = this) {
+renderWind({ config } = this) {
   const showWindForecast = config.forecast.show_wind_forecast !== false;
 
   if (!showWindForecast) {
     return x``;
   }
 
-  const forecast = this.forecasts ? this.forecasts.slice(0, forecastItems) : [];
+  const forecast = this.selectedForecasts();
 
   return x`
     <div class="wind-details">
       ${showWindForecast ? x`
         ${forecast.map((item) => {
-          let dWindSpeed = item.wind_speed;
-
-          if (this.unitSpeed !== this.weather.attributes.wind_speed_unit) {
-            if (this.unitSpeed === 'm/s') {
-              if (this.weather.attributes.wind_speed_unit === 'km/h') {
-                dWindSpeed = Math.round(item.wind_speed * 1000 / 3600);
-              } else if (this.weather.attributes.wind_speed_unit === 'mph') {
-                dWindSpeed = Math.round(item.wind_speed * 0.44704);
-              }
-            } else if (this.unitSpeed === 'km/h') {
-              if (this.weather.attributes.wind_speed_unit === 'm/s') {
-                dWindSpeed = Math.round(item.wind_speed * 3.6);
-              } else if (this.weather.attributes.wind_speed_unit === 'mph') {
-                dWindSpeed = Math.round(item.wind_speed * 1.60934);
-              }
-            } else if (this.unitSpeed === 'mph') {
-              if (this.weather.attributes.wind_speed_unit === 'm/s') {
-                dWindSpeed = Math.round(item.wind_speed / 0.44704);
-              } else if (this.weather.attributes.wind_speed_unit === 'km/h') {
-                dWindSpeed = Math.round(item.wind_speed / 1.60934);
-              }
-            } else if (this.unitSpeed === 'Bft') {
-              dWindSpeed = this.calculateBeaufortScale(item.wind_speed);
-            }
-          } else {
-            dWindSpeed = Math.round(dWindSpeed);
-          }
+          const dWindSpeed = convertWindSpeed(item.wind_speed, this.weather.attributes.wind_speed_unit, this.unitSpeed);
 
           return x`
-            <div class="wind-detail">
-              <ha-icon class="wind-icon" icon="hass:${this.getWindDirIcon(item.wind_bearing)}"></ha-icon>
-              <span class="wind-speed">${dWindSpeed}</span>
-              <span class="wind-unit">${this.ll('units')[this.unitSpeed]}</span>
+            <div class="wind-detail wind-detail--${config.forecast.wind_unit_position}">
+              <ha-icon class="wind-icon" data-size="forecast_wind_icon" icon="hass:${this.getWindDirIcon(item.wind_bearing)}"></ha-icon>
+              <div class="wind-values wind-values--${config.forecast.wind_unit_position}">
+                <span class="wind-speed" data-size="forecast_wind_speed">${dWindSpeed === undefined ? '—' : dWindSpeed}</span>
+                ${config.forecast.wind_unit_position === 'hidden' ? '' : x`<span class="wind-unit" data-size="forecast_wind_unit">${this.windUnit()}</span>`}
+              </div>
             </div>
           `;
         })}
@@ -19122,14 +19027,6 @@ renderLastUpdated() {
 
   const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
 
-  let formattedLastUpdated;
-
-  if (hoursAgo > 0) {
-    formattedLastUpdated = formatter.format(-hoursAgo, 'hour');
-  } else {
-    formattedLastUpdated = formatter.format(-minutesAgo, 'minute');
-  }
-
   const showLastUpdated = this.config.show_last_changed == true;
 
   if (!showLastUpdated) {
@@ -19139,7 +19036,8 @@ renderLastUpdated() {
   return x`
     <div class="updated">
       <div>
-        ${formattedLastUpdated}
+        ${formatter.formatToParts(hoursAgo > 0 ? -hoursAgo : -minutesAgo, hoursAgo > 0 ? 'hour' : 'minute')
+          .map(part => this.sizedText(part.type === 'literal' ? 'updated_text' : 'updated_number', part.value, 13))}
       </div>
     </div>
   `;
@@ -19172,5 +19070,5 @@ window.customCards.push({
   name: "Weather Chart Card",
   description: "A custom weather card with chart.",
   preview: true,
-  documentationURL: "https://github.com/mlamberts78/weather-chart-card",
+  documentationURL: "https://github.com/tomtom13/weather-chart-card",
 });

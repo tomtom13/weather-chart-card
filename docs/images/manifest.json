@@ -1,0 +1,66 @@
+{
+  "synthetic_data": true,
+  "screenshots": [
+    {
+      "file": "daily.png",
+      "kind": "card",
+      "points": 7
+    },
+    {
+      "file": "hourly.png",
+      "kind": "card",
+      "points": 8
+    },
+    {
+      "file": "icons-style1.png",
+      "kind": "card",
+      "packaged_images_loaded": true
+    },
+    {
+      "file": "icons-style2.png",
+      "kind": "card",
+      "packaged_images_loaded": true
+    },
+    {
+      "file": "editor-main.png",
+      "kind": "editor"
+    },
+    {
+      "file": "editor-forecast.png",
+      "kind": "editor"
+    },
+    {
+      "file": "editor-layout.png",
+      "kind": "editor"
+    },
+    {
+      "file": "editor-units.png",
+      "kind": "editor"
+    },
+    {
+      "file": "editor-alternate.png",
+      "kind": "editor"
+    },
+    {
+      "file": "editor-sizes-current.png",
+      "kind": "editor"
+    },
+    {
+      "file": "editor-sizes-attributes.png",
+      "kind": "editor"
+    },
+    {
+      "file": "editor-sizes-forecast.png",
+      "kind": "editor"
+    },
+    {
+      "file": "editor-sizes-other.png",
+      "kind": "editor"
+    }
+  ],
+  "native_controls_verified": [
+    "wind unit",
+    "precipitation box",
+    "forecast wind offset"
+  ]
+}
