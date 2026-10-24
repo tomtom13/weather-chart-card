@@ -7,6 +7,7 @@ The visual card configurator has a **Layout** page for these settings. They are 
 | `forecast.wind_unit_position` | `inline` | `inline`, `below`, `hidden`: wind-speed unit beside the number, under it, or omitted. |
 | `forecast.precipitation_unit_position` | `inline` | `inline`, `below`, `hidden`: unit beside the precipitation number, under it, or omitted. Applies to mm/in and percentage units when shown. |
 | `forecast.precipitation_border` | `true` | `false` removes the precipitation label's border and background only. Temperature-label styling is not changed. |
+| `forecast.precipitation_border_color` | empty (bar color) | CSS outline color, e.g. `'#000000'`, independent of bar/text colors. Requires `precipitation_border: true`; blank inherits the precipitation bar color. |
 | `padding_scale` | `0.7` | Non-negative spacing multiplier. The default gives 30% less padding/gap/margin; `1` restores original spacing and `0` removes adjustable spacing. |
 | `forecast.labels_bold` | `false` | Bold (`true`) or normal (`false`) forecast day/hour column labels. |
 | `forecast.weekday_format` | `short` | Daily forecast weekday names: `short` (Mon) or `long` (Monday), in the configured locale. |
@@ -55,7 +56,7 @@ The default is 0.7, including when the YAML key is omitted and when opening the 
 
 The **Layout** configurator exposes bold/normal text and short/long weekday names. The independent **Sizes -> Forecast day/hour labels** adjustment is `size_offsets.forecast_labels`; `+2` changes the normal 12 px baseline to 14 px without changing temperature or wind labels. Weekday names use the locale's normal capitalization. Header clock/day formatting is separate.
 
-Hourly column labels always reserve two lines: the date line (shown at midnight) and the time line. The first line remains blank at other hours, so the x-axis and plot do not resize when midnight enters or leaves the forecast window.
+Hourly column labels always reserve two lines. Hours have no minutes: `use_12hour_format: false` shows `13`, `14`, `15`; `true` shows plain `1`, `2`, `3`. In 12-hour mode, AM/PM appears in the upper row at the first point and whenever the half-day changes, including when the window starts after noon. Midnight shares that row with its date (for example `Oct 25 · AM`). In 24-hour mode the upper row carries only date boundaries. The plot and container retain their height across these transitions. This changes neither the header clock nor tooltip formatting.
 
 ## Forecast availability
 

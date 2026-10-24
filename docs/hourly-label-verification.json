@@ -1,0 +1,316 @@
+{
+  "bundle_sha256": "4004826c10a2da89c9259a5a97cee5ab4dd0a5a97853f840950121978bb5e6d4",
+  "results": [
+    {
+      "mode": "24h",
+      "start": 13,
+      "expected": [
+        [
+          "",
+          "13"
+        ],
+        [
+          "",
+          "14"
+        ],
+        [
+          "",
+          "15"
+        ],
+        [
+          "",
+          "16"
+        ]
+      ],
+      "labels": [
+        [
+          "",
+          "13"
+        ],
+        [
+          "",
+          "14"
+        ],
+        [
+          "",
+          "15"
+        ],
+        [
+          "",
+          "16"
+        ]
+      ],
+      "top": 42.8,
+      "height": 363.96875,
+      "passed": true
+    },
+    {
+      "mode": "24h",
+      "start": 10,
+      "expected": [
+        [
+          "",
+          "10"
+        ],
+        [
+          "",
+          "11"
+        ],
+        [
+          "",
+          "12"
+        ],
+        [
+          "",
+          "13"
+        ]
+      ],
+      "labels": [
+        [
+          "",
+          "10"
+        ],
+        [
+          "",
+          "11"
+        ],
+        [
+          "",
+          "12"
+        ],
+        [
+          "",
+          "13"
+        ]
+      ],
+      "top": 42.8,
+      "height": 363.96875,
+      "passed": true
+    },
+    {
+      "mode": "24h",
+      "start": 23,
+      "expected": [
+        [
+          "",
+          "23"
+        ],
+        [
+          "Oct 25",
+          "00"
+        ],
+        [
+          "",
+          "01"
+        ],
+        [
+          "",
+          "02"
+        ]
+      ],
+      "labels": [
+        [
+          "",
+          "23"
+        ],
+        [
+          "Oct 25",
+          "00"
+        ],
+        [
+          "",
+          "01"
+        ],
+        [
+          "",
+          "02"
+        ]
+      ],
+      "top": 42.8,
+      "height": 363.96875,
+      "passed": true
+    },
+    {
+      "mode": "12h",
+      "start": 13,
+      "expected": [
+        [
+          "PM",
+          "1"
+        ],
+        [
+          "",
+          "2"
+        ],
+        [
+          "",
+          "3"
+        ],
+        [
+          "",
+          "4"
+        ]
+      ],
+      "labels": [
+        [
+          "PM",
+          "1"
+        ],
+        [
+          "",
+          "2"
+        ],
+        [
+          "",
+          "3"
+        ],
+        [
+          "",
+          "4"
+        ]
+      ],
+      "top": 42.8,
+      "height": 363.96875,
+      "passed": true
+    },
+    {
+      "mode": "12h",
+      "start": 10,
+      "expected": [
+        [
+          "AM",
+          "10"
+        ],
+        [
+          "",
+          "11"
+        ],
+        [
+          "PM",
+          "12"
+        ],
+        [
+          "",
+          "1"
+        ]
+      ],
+      "labels": [
+        [
+          "AM",
+          "10"
+        ],
+        [
+          "",
+          "11"
+        ],
+        [
+          "PM",
+          "12"
+        ],
+        [
+          "",
+          "1"
+        ]
+      ],
+      "top": 42.8,
+      "height": 363.96875,
+      "passed": true
+    },
+    {
+      "mode": "12h",
+      "start": 23,
+      "expected": [
+        [
+          "PM",
+          "11"
+        ],
+        [
+          "Oct 25 \u00b7 AM",
+          "12"
+        ],
+        [
+          "",
+          "1"
+        ],
+        [
+          "",
+          "2"
+        ]
+      ],
+      "labels": [
+        [
+          "PM",
+          "11"
+        ],
+        [
+          "Oct 25 \u00b7 AM",
+          "12"
+        ],
+        [
+          "",
+          "1"
+        ],
+        [
+          "",
+          "2"
+        ]
+      ],
+      "top": 42.8,
+      "height": 363.96875,
+      "passed": true
+    },
+    {
+      "contract": "metadata does not move plot",
+      "tops": [
+        42.8,
+        42.8,
+        42.8,
+        42.8,
+        42.8,
+        42.8
+      ],
+      "passed": true
+    },
+    {
+      "contract": "daily weekday unchanged",
+      "labels": [
+        "Sat"
+      ],
+      "passed": true
+    },
+    {
+      "contract": "precipitation outline color and switch",
+      "type": "daily",
+      "enabled": true,
+      "red_pixels": 118,
+      "passed": true
+    },
+    {
+      "contract": "precipitation outline color and switch",
+      "type": "daily",
+      "enabled": false,
+      "red_pixels": 0,
+      "passed": true
+    },
+    {
+      "contract": "precipitation outline color and switch",
+      "type": "hourly",
+      "enabled": true,
+      "red_pixels": 118,
+      "passed": true
+    },
+    {
+      "contract": "precipitation outline color and switch",
+      "type": "hourly",
+      "enabled": false,
+      "red_pixels": 0,
+      "passed": true
+    },
+    {
+      "contract": "native outline color control saves",
+      "value": "#123456",
+      "passed": true
+    }
+  ],
+  "passed": true
+}

@@ -75,6 +75,7 @@ export const LAYOUT_FIELDS = [
   select('wind_unit_position', 'Forecast wind unit position', positions, 'inline'),
   select('precipitation_unit_position', 'Precipitation unit position', positions, 'inline'),
   bool('precipitation_border', 'Box around precipitation labels', true),
+  text('precipitation_border_color', 'Precipitation outline color (blank = bar color)'),
   bool('labels_bold', 'Bold forecast day/hour labels', false),
   select('weekday_format', 'Daily forecast weekday names', [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], 'short'),
   field('padding_scale', 'Spacing scale (0.70 = 30% less)', { number: { mode: 'box', min: 0, step: 0.01 } }, 0.7),

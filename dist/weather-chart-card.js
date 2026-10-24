@@ -1047,6 +1047,7 @@ const LAYOUT_FIELDS = [
   select('wind_unit_position', 'Forecast wind unit position', positions$1, 'inline'),
   select('precipitation_unit_position', 'Precipitation unit position', positions$1, 'inline'),
   bool('precipitation_border', 'Box around precipitation labels', true),
+  text('precipitation_border_color', 'Precipitation outline color (blank = bar color)'),
   bool('labels_bold', 'Bold forecast day/hour labels', false),
   select('weekday_format', 'Daily forecast weekday names', [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], 'short'),
   field('padding_scale', 'Spacing scale (0.70 = 30% less)', { number: { mode: 'box', min: 0, step: 0.01 } }, 0.7),
@@ -17684,6 +17685,7 @@ setConfig(config) {
       wind_unit_position: 'inline',
       precipitation_unit_position: 'inline',
       precipitation_border: true,
+      precipitation_border_color: '',
       precipitation_type: 'rainfall',
       show_probability: false,
       labels_font_size: 11,
@@ -18152,6 +18154,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
       datalabels: {
         font: { size: this.size('forecast_precipitation', config.forecast.labels_font_size), lineHeight: 0.7 },
         borderWidth: config.forecast.precipitation_border === false ? 0 : 1.5,
+        borderColor: config.forecast.precipitation_border_color || config.forecast.precipitation_color,
         backgroundColor: config.forecast.precipitation_border === false ? 'transparent' : backgroundColor,
         display: function (context) {
           return context.dataset.data[context.dataIndex] > 0 ? 'true' : false;
@@ -18255,33 +18258,24 @@ drawChart({ config, language, weather, forecastItems } = this) {
                   var datetime = this.getLabelForValue(value);
                   var dateObj = new Date(datetime);
         
-                  var timeFormatOptions = {
-                      hour12: config.use_12hour_format,
-                      hour: 'numeric',
-                      ...(config.use_12hour_format ? {} : { minute: 'numeric' }),
-                  };
-
-                  var time = dateObj.toLocaleTimeString(language, timeFormatOptions);
-
-                  if (dateObj.getHours() === 0 && dateObj.getMinutes() === 0 && config.forecast.type === 'hourly') {
-                      var dateFormatOptions = {
-                          day: 'numeric',
-                          month: 'short',
-                      };
-                      var date = dateObj.toLocaleDateString(language, dateFormatOptions);
-                      time = time.replace('a.m.', 'AM').replace('p.m.', 'PM');
-                      return [date, time];
-                  }
-
                   if (config.forecast.type !== 'hourly') {
-                      var weekday = dateObj.toLocaleString(language, { weekday: config.forecast.weekday_format });
-                      return weekday;
+                      return dateObj.toLocaleString(language, { weekday: config.forecast.weekday_format });
                   }
 
-                  time = time.replace('a.m.', 'AM').replace('p.m.', 'PM');
-                  // Keep the date line even when no midnight is in the window.
-                  // Otherwise the x-axis grows/shrinks as the new day enters it.
-                  return ['', time];
+                  const use12Hour = config.use_12hour_format === true;
+                  const hour = new Intl.DateTimeFormat(language, {
+                      hour: 'numeric', hourCycle: use12Hour ? 'h12' : 'h23',
+                  }).formatToParts(dateObj).find(part => part.type === 'hour').value;
+                  const previous = index > 0 ? new Date(this.getLabelForValue(values[index - 1].value)) : null;
+                  const isPM = dateObj.getHours() >= 12;
+                  const periodChanged = !previous || isPM !== (previous.getHours() >= 12) || dateObj.toDateString() !== previous.toDateString();
+                  const showDate = (dateObj.getHours() === 0 && dateObj.getMinutes() === 0) ||
+                      (previous && dateObj.toDateString() !== previous.toDateString());
+                  const date = showDate ? dateObj.toLocaleDateString(language, { day: 'numeric', month: 'short' }) : '';
+                  const period = use12Hour && periodChanged ? (isPM ? 'PM' : 'AM') : '';
+                  // Always reserve the same two rows. Share the upper row instead
+                  // of repeating minutes or AM/PM on every hourly tick.
+                  return [[date, period].filter(Boolean).join(' · '), hour];
               },
           },
           reverse: document.dir === 'rtl' ? true : false,

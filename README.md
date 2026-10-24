@@ -159,11 +159,11 @@ The card requires top-level `type: custom:weather-chart-card`. The remaining Mai
 | `forecast.chart_datetime_color` | string | `none` | CSS color for the day/hour ticks; blank inherits the theme text color. |
 | `forecast.chart_text_color` | string | `none` | CSS color for value labels. Blank retains style/dataset defaults; `auto` follows the HASS theme. For monochrome displays use explicit black or `auto` with a suitable theme. |
 
-Daily forecasts can include high and low lines; missing low-temperature data cannot produce a meaningful low line. Hourly ticks reserve a date line at midnight plus a time line, keeping chart height stable as midnight enters/leaves the window. Dates/times use the **browser’s timezone**, including the browser used by a kiosk renderer; this card has no independent timezone override.
+Daily forecasts can include high and low lines; missing low-temperature data cannot produce a meaningful low line. Hourly ticks show hours only, using the existing `use_12hour_format` setting: 24-hour mode shows `13`, `14`, `15`; 12-hour mode shows plain `1`, `2`, `3` with a shared AM/PM marker in the upper row at the first point and each half-day transition. Midnight combines its date and AM marker on that same row. Both rows remain reserved so the plot never shifts. Header clocks and tooltip times retain their normal formatting. Dates/times use the **browser’s timezone**, including the browser used by a kiosk renderer; this card has no independent timezone override.
 
 ### Layout options — Layout page
 
-`padding_scale` is top-level. The other five settings in this table belong under `forecast:`.
+`padding_scale` is top-level. The other settings in this table belong under `forecast:`.
 
 | YAML option | Type | Default | Effect / setup |
 |---|---|---|---|
@@ -174,6 +174,7 @@ Daily forecasts can include high and low lines; missing low-temperature data can
 | `forecast.wind_unit_position` | string | `inline` | `inline`, `below`, or `hidden`: unit beside the wind number, below it, or absent. Hiding the label does not disable conversion. |
 | `forecast.precipitation_unit_position` | string | `inline` | `inline`, `below`, or `hidden` for amount/probability units. Numbers and bars remain visible. |
 | `forecast.precipitation_border` | boolean | `true` | False removes the precipitation label border and background, not its bars or temperature-label boxes. |
+| `forecast.precipitation_border_color` | string | empty (bar color) | CSS color for the precipitation-number outline, independent of the bar and temperature colors. Example: `'#000000'`. Takes effect when `forecast.precipitation_border: true`; blank restores the bar color. |
 | `forecast.labels_bold` | boolean | `false` | Use bold day/hour tick labels. Does not change temperature-label weight. |
 | `forecast.weekday_format` | string | `short` | `short` (Mon) or `long` (Monday) daily weekday names, localized. Does not alter the separate header date/clock. |
 
