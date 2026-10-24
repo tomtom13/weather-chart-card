@@ -1050,6 +1050,7 @@ const LAYOUT_FIELDS = [
   text('precipitation_border_color', 'Precipitation outline color (blank = bar color)'),
   bool('labels_bold', 'Bold forecast day/hour labels', false),
   select('weekday_format', 'Daily forecast weekday names', [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], 'short'),
+  number('grid_line_width', 'Forecast divider line width (px)', 2),
   field('padding_scale', 'Spacing scale (0.70 = 30% less)', { number: { mode: 'box', min: 0, step: 0.01 } }, 0.7),
 ];
 
@@ -17682,6 +17683,7 @@ setConfig(config) {
     forecast: {
       labels_bold: false,
       weekday_format: 'short',
+      grid_line_width: 2,
       wind_unit_position: 'inline',
       precipitation_unit_position: 'inline',
       precipitation_border: true,
@@ -17715,6 +17717,11 @@ setConfig(config) {
       !Number.isFinite(cardConfig.padding_scale) || cardConfig.padding_scale < 0) {
     throw new Error('padding_scale must be a non-negative number');
   }
+  const gridWidth = cardConfig.forecast.grid_line_width;
+  if (!['number', 'string'].includes(typeof gridWidth) || String(gridWidth).trim() === '' || !Number.isFinite(Number(gridWidth)) || Number(gridWidth) < 1) {
+    throw new Error('forecast.grid_line_width must be a finite number of at least 1 px');
+  }
+  cardConfig.forecast.grid_line_width = Number(gridWidth);
   if (typeof cardConfig.forecast.precipitation_border !== 'boolean') {
     throw new Error('forecast.precipitation_border must be true or false');
   }
@@ -18257,6 +18264,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
           grid: {
             drawTicks: false,
             color: dividerColor,
+            lineWidth: config.forecast.grid_line_width,
           },
           ticks: {
               major: { enabled: config.forecast.type === 'hourly' },

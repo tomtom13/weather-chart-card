@@ -1,0 +1,71 @@
+{
+  "bundle_sha256": "22c76519da7ceaf5e0e0cea3aa566b720201324ca79fe1f9dc5fb1ed138a686a",
+  "results": [
+    {
+      "type": "daily",
+      "configured": null,
+      "expected": 2,
+      "resolved": 2,
+      "pixel_widths": [
+        2,
+        2
+      ],
+      "temperature_widths": [
+        1.5,
+        1.5
+      ],
+      "passed": true
+    },
+    {
+      "type": "daily",
+      "configured": 4,
+      "expected": 4,
+      "resolved": 4,
+      "pixel_widths": [
+        4,
+        4
+      ],
+      "temperature_widths": [
+        1.5,
+        1.5
+      ],
+      "passed": true
+    },
+    {
+      "type": "hourly",
+      "configured": null,
+      "expected": 2,
+      "resolved": 2,
+      "pixel_widths": [
+        2,
+        2
+      ],
+      "temperature_widths": [
+        1.5,
+        1.5
+      ],
+      "passed": true
+    },
+    {
+      "type": "hourly",
+      "configured": 4,
+      "expected": 4,
+      "resolved": 4,
+      "pixel_widths": [
+        4,
+        4
+      ],
+      "temperature_widths": [
+        1.5,
+        1.5
+      ],
+      "passed": true
+    },
+    {
+      "contract": "native divider width control saves",
+      "value": 5,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

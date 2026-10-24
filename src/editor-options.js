@@ -78,6 +78,7 @@ export const LAYOUT_FIELDS = [
   text('precipitation_border_color', 'Precipitation outline color (blank = bar color)'),
   bool('labels_bold', 'Bold forecast day/hour labels', false),
   select('weekday_format', 'Daily forecast weekday names', [{ value: 'short', label: 'Short (Mon)' }, { value: 'long', label: 'Long (Monday)' }], 'short'),
+  number('grid_line_width', 'Forecast divider line width (px)', 2),
   field('padding_scale', 'Spacing scale (0.70 = 30% less)', { number: { mode: 'box', min: 0, step: 0.01 } }, 0.7),
 ];
 

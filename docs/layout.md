@@ -9,6 +9,7 @@ The visual card configurator has a **Layout** page for these settings. They are 
 | `forecast.precipitation_border` | `true` | `false` removes the precipitation label's border and background only. Temperature-label styling is not changed. |
 | `forecast.precipitation_border_color` | empty (bar color) | CSS outline color, e.g. `'#000000'`, independent of bar/text colors. Requires `precipitation_border: true`; blank inherits the precipitation bar color. |
 | `padding_scale` | `0.7` | Non-negative spacing multiplier. The default gives 30% less padding/gap/margin; `1` restores original spacing and `0` removes adjustable spacing. |
+| `forecast.grid_line_width` | `2` | Vertical day/hour separator thickness in CSS pixels (minimum 1). The default is 1 px thicker than the original. Set `1` to restore the original weight. Does not change temperature lines or precipitation outlines; also available under Layout. |
 | `forecast.labels_bold` | `false` | Bold (`true`) or normal (`false`) forecast day/hour column labels. |
 | `forecast.weekday_format` | `short` | Daily forecast weekday names: `short` (Mon) or `long` (Monday), in the configured locale. |
 | `units.speed` | Weather entity unit | The unit for all wind values in this card: `m/s`, `km/h`, `mph`, `kn`, `ft/s`, `Bft`. Native `Beaufort` is also accepted. An empty value follows the weather entity. |

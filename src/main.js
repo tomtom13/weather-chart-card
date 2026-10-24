@@ -110,6 +110,7 @@ setConfig(config) {
     forecast: {
       labels_bold: false,
       weekday_format: 'short',
+      grid_line_width: 2,
       wind_unit_position: 'inline',
       precipitation_unit_position: 'inline',
       precipitation_border: true,
@@ -143,6 +144,11 @@ setConfig(config) {
       !Number.isFinite(cardConfig.padding_scale) || cardConfig.padding_scale < 0) {
     throw new Error('padding_scale must be a non-negative number');
   }
+  const gridWidth = cardConfig.forecast.grid_line_width;
+  if (!['number', 'string'].includes(typeof gridWidth) || String(gridWidth).trim() === '' || !Number.isFinite(Number(gridWidth)) || Number(gridWidth) < 1) {
+    throw new Error('forecast.grid_line_width must be a finite number of at least 1 px');
+  }
+  cardConfig.forecast.grid_line_width = Number(gridWidth);
   if (typeof cardConfig.forecast.precipitation_border !== 'boolean') {
     throw new Error('forecast.precipitation_border must be true or false');
   }
@@ -685,6 +691,7 @@ drawChart({ config, language, weather, forecastItems } = this) {
           grid: {
             drawTicks: false,
             color: dividerColor,
+            lineWidth: config.forecast.grid_line_width,
           },
           ticks: {
               major: { enabled: config.forecast.type === 'hourly' },

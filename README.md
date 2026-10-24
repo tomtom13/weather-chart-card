@@ -175,6 +175,7 @@ Daily forecasts can include high and low lines; missing low-temperature data can
 | `forecast.precipitation_unit_position` | string | `inline` | `inline`, `below`, or `hidden` for amount/probability units. Numbers and bars remain visible. |
 | `forecast.precipitation_border` | boolean | `true` | False removes the precipitation label border and background, not its bars or temperature-label boxes. |
 | `forecast.precipitation_border_color` | string | empty (bar color) | CSS color for the precipitation-number outline, independent of the bar and temperature colors. Example: `'#000000'`. Takes effect when `forecast.precipitation_border: true`; blank restores the bar color. |
+| `forecast.grid_line_width` | number | `2` | Vertical day/hour divider thickness in CSS px, at least 1. Default is one pixel thicker than the original 1 px; set `1` to restore the old weight. Temperature lines, chart borders and precipitation outlines are unaffected. Available under Layout. |
 | `forecast.labels_bold` | boolean | `false` | Use bold day/hour tick labels. Does not change temperature-label weight. |
 | `forecast.weekday_format` | string | `short` | `short` (Mon) or `long` (Monday) daily weekday names, localized. Does not alter the separate header date/clock. |
 
